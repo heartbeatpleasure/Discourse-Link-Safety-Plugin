@@ -8,12 +8,34 @@ module ::LinkSafety
 
     def self.post_raw_result(raw, topic_id)
       return Extraction.new(urls: [], error_code: nil) if raw.blank?
-      Extraction.new(urls: Array(::PostAnalyzer.new(raw, topic_id).raw_links).compact, error_code: nil)
+
+      urls = Array(::PostAnalyzer.new(raw, topic_id).raw_links).compact
+
+      # Discourse treats a bare URL-only post as a onebox candidate. Depending
+      # on the cooking path, PostAnalyzer#raw_links may omit that standalone
+      # target even though it later becomes an <a class="onebox"> in cooked
+      # content. Link Safety must validate it before persistence just like any
+      # other external URL, otherwise Enforce can only neutralize it after the
+      # post has already been saved. Keep this fallback deliberately narrow so
+      # code blocks and ordinary prose are still governed by PostAnalyzer.
+      standalone = standalone_http_url(raw)
+      urls << standalone if standalone.present? && !urls.include?(standalone)
+
+      Extraction.new(urls: urls.uniq, error_code: nil)
     rescue => e
       Rails.logger.warn("[LinkSafety] post link extraction failed class=#{e.class.name}")
       ::LinkSafety::HealthRegistry.control_failure!(component: :extractor, code: e.class.name)
       Extraction.new(urls: [], error_code: "extractor_failure")
     end
+
+    def self.standalone_http_url(raw)
+      candidate = raw.to_s.strip
+      return if candidate.blank? || candidate.match?(/\s/)
+      return unless candidate.match?(/\Ahttps?:\/\//i)
+
+      candidate
+    end
+    private_class_method :standalone_http_url
 
     def self.chat_message_result(message, user: nil)
       return Extraction.new(urls: [], error_code: nil) if message.blank? || !defined?(::Chat::Message)
