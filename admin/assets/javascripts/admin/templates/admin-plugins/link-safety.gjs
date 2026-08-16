@@ -152,11 +152,11 @@ export default RouteTemplate(
           </div>
           <div class="ls-admin__metric">
             <div class="ls-admin__metric-label">{{i18n "admin.link_safety.provider"}}</div>
-            <div class="ls-admin__metric-value">{{@model.provider}}</div>
+            <div class="ls-admin__metric-value">{{@model.provider_display}}</div>
           </div>
           <div class="ls-admin__metric">
             <div class="ls-admin__metric-label">{{i18n "admin.link_safety.mode"}}</div>
-            <div class="ls-admin__metric-value">{{@model.mode}}</div>
+            <div class="ls-admin__metric-value">{{@model.mode_display}}</div>
           </div>
           <div class="ls-admin__metric">
             <div class="ls-admin__metric-label">{{i18n "admin.link_safety.circuit"}}</div>

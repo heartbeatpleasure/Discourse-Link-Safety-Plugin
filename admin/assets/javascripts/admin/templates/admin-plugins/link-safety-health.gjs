@@ -141,7 +141,7 @@ export default RouteTemplate(
             </div>
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.provider"}}</div>
-              <div class="ls-health__value">{{@controller.data.provider}}</div>
+              <div class="ls-health__value">{{@controller.data.provider_display}}</div>
             </div>
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.provider_configuration"}}</div>
@@ -149,7 +149,7 @@ export default RouteTemplate(
             </div>
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.mode"}}</div>
-              <div class="ls-health__value">{{@controller.data.mode}}</div>
+              <div class="ls-health__value">{{@controller.data.mode_display}}</div>
             </div>
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.circuit"}}</div>
@@ -175,7 +175,7 @@ export default RouteTemplate(
             </div>
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.failure_code"}}</div>
-              <div class="ls-health__value">{{if @controller.data.last_failure_code @controller.data.last_failure_code "-"}}</div>
+              <div class="ls-health__value">{{@controller.data.last_failure_code_display}}</div>
             </div>
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.last_latency"}}</div>

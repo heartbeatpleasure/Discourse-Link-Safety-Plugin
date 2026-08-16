@@ -2,9 +2,8 @@ import Controller from "@ember/controller";
 import { action } from "@ember/object";
 import { tracked } from "@glimmer/tracking";
 import { ajax } from "discourse/lib/ajax";
-import {
-  formatLinkSafetyDateOnly,
-} from "../../lib/link-safety-date";
+import { formatLinkSafetyDateOnly } from "../../lib/link-safety-date";
+import { providerLabel } from "../../lib/link-safety-display";
 import { i18n } from "discourse-i18n";
 
 const SUM_FIELDS = [
@@ -56,18 +55,6 @@ export default class AdminPluginsLinkSafetyStatisticsController extends Controll
     ];
   }
 
-  providerDisplay(provider) {
-    switch (provider) {
-      case "safe_browsing_v5":
-        return i18n("admin.link_safety.provider_safe_browsing_v5");
-      case "web_risk_lookup":
-        return i18n("admin.link_safety.provider_web_risk");
-      case "urlhaus":
-        return "URLhaus";
-      default:
-        return provider || "—";
-    }
-  }
 
   @action
   async load() {
@@ -86,7 +73,7 @@ export default class AdminPluginsLinkSafetyStatisticsController extends Controll
         rows: (data?.rows || []).map((row) => ({
           ...row,
           date_display: formatLinkSafetyDateOnly(row.date),
-          provider_display: this.providerDisplay(row.provider),
+          provider_display: providerLabel(row.provider),
           average_latency_display:
             row.average_latency_ms === null ||
             row.average_latency_ms === undefined

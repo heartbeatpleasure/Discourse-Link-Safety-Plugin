@@ -3,6 +3,11 @@ import { action } from "@ember/object";
 import { tracked } from "@glimmer/tracking";
 import { ajax } from "discourse/lib/ajax";
 import { formatLinkSafetyDateTime } from "../../lib/link-safety-date";
+import {
+  failureCodeLabel,
+  modeLabel,
+  providerLabel,
+} from "../../lib/link-safety-display";
 
 export default class AdminPluginsLinkSafetyHealthController extends Controller {
   @tracked data = null;
@@ -18,6 +23,11 @@ export default class AdminPluginsLinkSafetyHealthController extends Controller {
 
     return {
       ...data,
+      provider_display: providerLabel(data.provider),
+      mode_display: modeLabel(data.mode),
+      last_failure_code_display: data.last_failure_code
+        ? failureCodeLabel(data.last_failure_code)
+        : "—",
       last_success_at_display: formatLinkSafetyDateTime(data.last_success_at),
       last_failure_at_display: formatLinkSafetyDateTime(data.last_failure_at),
       circuit_open_until_display: formatLinkSafetyDateTime(
