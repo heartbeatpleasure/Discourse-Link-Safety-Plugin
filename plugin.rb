@@ -2,7 +2,7 @@
 
 # name: Discourse-Link-Safety-Plugin
 # about: Checks external links in Discourse content against configurable malicious URL reputation providers.
-# version: 1.0.1
+# version: 1.0.2
 # authors: Chris
 
 add_admin_route "admin.link_safety.title", "linkSafety"
@@ -13,7 +13,6 @@ module ::LinkSafety
 end
 
 register_asset "stylesheets/link-safety.scss"
-register_asset "stylesheets/link-safety-admin.scss", :admin
 
 plugin_instance = self
 
