@@ -18,5 +18,16 @@ RSpec.describe LinkSafety::Providers::GoogleSafeBrowsingV5 do
       expect(provider.send(:decode_bytes, padded)).to eq(value)
       expect(provider.send(:decode_bytes, unpadded)).to eq(value)
     end
+
+    it "requests the Safe Browsing REST response explicitly as JSON" do
+      SiteSetting.link_safety_google_api_key = "test-key"
+      prefix = "\xBA\x78\x16\xBF".b
+      uri = provider.send(:build_search_uri, [prefix])
+      decoded = URI.decode_www_form(uri.query).to_h
+
+      expect(decoded["hashPrefixes"]).to eq(Base64.strict_encode64(prefix))
+      expect(decoded["alt"]).to eq("json")
+      expect(decoded["key"]).to eq("test-key")
+    end
   end
 end

@@ -56,9 +56,7 @@ module ::LinkSafety
 
       def request_chunk(items, prefix_sets, digest_maps)
         prefixes = items.flat_map { |item| prefix_sets[item.fingerprint] }.uniq
-        params = prefixes.map { |prefix| ["hashPrefixes", Base64.strict_encode64(prefix)] }
-        params << ["key", SiteSetting.link_safety_google_api_key]
-        uri = URI("#{ENDPOINT}?#{URI.encode_www_form(params)}")
+        uri = build_search_uri(prefixes)
 
         raw = request(uri)
         if raw.length == 3
@@ -73,10 +71,16 @@ module ::LinkSafety
         end
 
         payload = parse_json(response)
-        return error_results(items, :malformed_response, latency) unless payload.is_a?(Hash)
+        unless payload.is_a?(Hash)
+          log_malformed_response(response, reason: "invalid_json")
+          return error_results(items, :malformed_response, latency)
+        end
 
         duration = parse_duration(payload["cacheDuration"])
-        return error_results(items, :malformed_response, latency) if duration.nil?
+        if duration.nil?
+          log_malformed_response(response, reason: "missing_or_invalid_cache_duration")
+          return error_results(items, :malformed_response, latency)
+        end
         expires_at = Time.zone.now + duration.seconds
         full_hashes = Array(payload["fullHashes"])
 
@@ -108,6 +112,28 @@ module ::LinkSafety
         end
       rescue ArgumentError
         error_results(items, :malformed_response)
+      end
+
+
+      def build_search_uri(prefixes)
+        params = prefixes.map { |prefix| ["hashPrefixes", Base64.strict_encode64(prefix)] }
+        # Safe Browsing v5 direct HTTP examples may return protobuf-formatted
+        # payloads. This client intentionally uses the REST JSON representation,
+        # so request it explicitly instead of relying on response negotiation.
+        params << ["alt", "json"]
+        params << ["key", SiteSetting.link_safety_google_api_key]
+        URI("#{ENDPOINT}?#{URI.encode_www_form(params)}")
+      end
+
+      def log_malformed_response(response, reason:)
+        content_type = response["Content-Type"].to_s.split(";", 2).first
+        body_bytes = response.body.to_s.bytesize
+        Rails.logger.warn(
+          "[LinkSafety] Safe Browsing malformed response reason=#{reason} content_type=#{content_type.presence || 'unknown'} body_bytes=#{body_bytes}",
+        )
+      rescue StandardError
+        # Diagnostics must never interfere with the fail-safe provider result.
+        nil
       end
 
       def parse_duration(value)

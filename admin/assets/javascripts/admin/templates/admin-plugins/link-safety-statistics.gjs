@@ -43,13 +43,31 @@ export default RouteTemplate(
       .ls-stats__actions {
         display: flex;
         flex: 0 0 auto;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: flex-end;
-        gap: .5rem;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: flex-start;
+        gap: .8rem;
         margin-left: auto;
       }
-      .ls-stats__actions select {
+      .ls-stats__buttons {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: .5rem;
+      }
+      .ls-stats__period {
+        display: inline-flex;
+        align-items: center;
+        gap: .75rem;
+        margin: 0;
+      }
+      .ls-stats__period > span {
+        color: var(--ls-muted);
+        font-size: var(--font-down-1);
+        font-weight: 700;
+      }
+      .ls-stats__period select {
+        min-width: 180px;
         min-height: 38px;
         padding: 0 .65rem;
         border: 1px solid var(--ls-border);
@@ -84,7 +102,10 @@ export default RouteTemplate(
       }
       @media (max-width: 700px) {
         .ls-stats__hero { flex-direction: column; }
-        .ls-stats__actions { justify-content: flex-start; margin-left: 0; }
+        .ls-stats__actions { align-items: flex-start; justify-content: flex-start; margin-left: 0; }
+        .ls-stats__buttons { justify-content: flex-start; }
+        .ls-stats__period { width: 100%; }
+        .ls-stats__period select { min-width: 0; flex: 1 1 auto; }
       }
     </style>
 
@@ -95,16 +116,21 @@ export default RouteTemplate(
           <p class="ls-stats__muted">{{i18n "admin.link_safety.statistics_description"}}</p>
         </div>
         <div class="ls-stats__actions">
-          <select aria-label={{i18n "admin.link_safety.period"}} {{on "change" @controller.setDays}}>
-            <option value="7">7 days</option>
-            <option value="30" selected>30 days</option>
-            <option value="90">90 days</option>
-            <option value="365">365 days</option>
-          </select>
-          <a class="btn" href={{overviewUrl}}>{{i18n "admin.link_safety.back_to_overview"}}</a>
-          <button class="btn btn-primary" type="button" disabled={{@controller.isLoading}} {{on "click" @controller.load}}>
-            {{i18n "admin.link_safety.refresh"}}
-          </button>
+          <div class="ls-stats__buttons">
+            <a class="btn" href={{overviewUrl}}>{{i18n "admin.link_safety.back_to_overview"}}</a>
+            <button class="btn btn-primary" type="button" disabled={{@controller.isLoading}} {{on "click" @controller.load}}>
+              {{i18n "admin.link_safety.refresh"}}
+            </button>
+          </div>
+          <label class="ls-stats__period" for="link-safety-statistics-period">
+            <span>{{i18n "admin.link_safety.period"}}</span>
+            <select id="link-safety-statistics-period" value={{@controller.days}} aria-label={{i18n "admin.link_safety.period"}} disabled={{@controller.isLoading}} {{on "change" @controller.setDays}}>
+              <option value="7">7 days</option>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="365">365 days</option>
+            </select>
+          </label>
         </div>
       </section>
 
