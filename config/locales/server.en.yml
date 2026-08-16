@@ -1,0 +1,51 @@
+en:
+  site_settings:
+    link_safety_enabled: "Enable Link Safety protection. No provider calls are made while disabled."
+    link_safety_mode: "Monitor records threats without blocking. Enforce rejects confirmed malicious links."
+    link_safety_provider: "Primary URL reputation provider. Safe Browsing v5 is for eligible non-commercial use; Web Risk is intended for commercial use."
+    link_safety_google_api_key: "Google API key used by the selected primary provider. Keep this server-side secret."
+    link_safety_safe_browsing_noncommercial_acknowledged: "Confirm that this deployment is eligible for Google Safe Browsing's non-commercial use requirement. Required when Safe Browsing v5 is selected."
+    link_safety_scan_public_posts: "Check external links in public topics and replies."
+    link_safety_scan_private_messages: "Check external links in private-message topics and replies."
+    link_safety_scan_chat_public: "Check external links in public and restricted Chat channels."
+    link_safety_scan_chat_direct_messages: "Check external links in direct Chat messages."
+    link_safety_scan_profile_links: "Check profile website and biography links when changed."
+    link_safety_profile_fail_open: "Allow a profile link change when the provider is unavailable. Disabled by default so unverified profile links are not persisted."
+    link_safety_failure_policy: "What to do when a required provider verdict cannot be obtained. Fail-open preserves posting; fail-closed rejects the submission."
+    link_safety_trusted_domains: "Domains excluded from reputation checks. Enter hostnames only. Do not add URL shorteners, shared cloud storage, or broad user-content domains."
+    link_safety_trusted_domains_include_subdomains: "Also trust subdomains of entries in link_safety_trusted_domains. Leave disabled unless this broader scope is intentional."
+    link_safety_max_external_urls_per_submission: "Maximum unique external HTTP(S) links that may require classification in one submission."
+    link_safety_connect_timeout_ms: "Provider connection timeout in milliseconds."
+    link_safety_read_timeout_ms: "Provider read timeout in milliseconds."
+    link_safety_validation_budget_ms: "Maximum synchronous Web Risk validation budget in milliseconds for a multi-link submission. Remaining uncached URLs fail according to the configured failure policy when the budget is exhausted."
+    link_safety_web_risk_clean_cache_minutes: "How long an empty Web Risk Lookup result may be cached locally."
+    link_safety_urlhaus_enabled: "Also query URLhaus for known malware-distribution URLs."
+    link_safety_urlhaus_auth_key: "abuse.ch Auth-Key used for URLhaus."
+    link_safety_urlhaus_private_surfaces: "Allow full private-message and direct-chat URLs to be sent to URLhaus. Disabled by default for privacy."
+    link_safety_detection_retention_days: "Days to retain normalized threat detections. Full URLs are not stored in detection records."
+    link_safety_statistics_retention_days: "Days to retain aggregate daily statistics."
+    link_safety_user_notes_mode: "Optional Discourse User Notes integration: off, threshold only, or every confirmed threat."
+    link_safety_repeat_threat_threshold_count: "Confirmed threat attempts within the threshold window before threshold escalation/user note."
+    link_safety_repeat_threat_threshold_hours: "Time window used for repeated-threat thresholding."
+    link_safety_circuit_breaker_failure_count: "Provider failures within the window before the circuit breaker opens."
+    link_safety_circuit_breaker_window_minutes: "Failure observation window for the provider circuit breaker."
+    link_safety_circuit_breaker_open_minutes: "How long to skip provider calls after the circuit breaker opens."
+
+  dashboard:
+    problem:
+      link_safety_operational_health: "Link Safety has an operational problem:%{issues}<a href='%{base_path}/admin/plugins/link-safety-health'>Open Link Safety Health</a>."
+
+  link_safety:
+    admin_alerts:
+      missing_api_key: "The selected Link Safety provider has no Google API key configured."
+      safe_browsing_usage_not_acknowledged: "Safe Browsing is selected but the non-commercial usage acknowledgement is not enabled."
+      circuit_open: "The provider circuit breaker is open until %{until_time}."
+    errors:
+      malicious_link: "This link may be unsafe and cannot be posted. Remove or replace the external link and try again."
+      malicious_link_google: "This link may be unsafe and cannot be posted. Remove or replace the external link and try again. Advisory provided by Google: https://developers.google.com/safe-browsing/v4/advisory"
+      unavailable: "This external link could not be verified at the moment. Please try again later or post without the link."
+      too_many_links: "This content contains too many external links to verify at once. Reduce the number of external links and try again."
+      configuration: "External link verification is not configured correctly. Please contact the site staff."
+    user_note: "Link Safety: %{count} confirmed unsafe-link attempts were detected within %{hours} hours; latest category: %{threat}."
+    rendered_warning: "Potentially unsafe link disabled."
+    google_advisory: "Advisory provided by Google"

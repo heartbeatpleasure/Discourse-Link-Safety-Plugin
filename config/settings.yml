@@ -1,0 +1,178 @@
+plugins:
+  link_safety_enabled:
+    default: false
+    client: false
+
+  link_safety_mode:
+    default: "monitor"
+    type: enum
+    choices:
+      - monitor
+      - enforce
+    client: false
+
+  link_safety_provider:
+    default: "safe_browsing_v5"
+    type: enum
+    choices:
+      - safe_browsing_v5
+      - web_risk_lookup
+    client: false
+
+  link_safety_google_api_key:
+    default: ""
+    type: string
+    secret: true
+    client: false
+
+  link_safety_safe_browsing_noncommercial_acknowledged:
+    default: false
+    client: false
+
+  link_safety_scan_public_posts:
+    default: true
+    client: false
+
+  link_safety_scan_private_messages:
+    default: true
+    client: false
+
+  link_safety_scan_chat_public:
+    default: true
+    client: false
+
+  link_safety_scan_chat_direct_messages:
+    default: true
+    client: false
+
+  link_safety_scan_profile_links:
+    default: true
+    client: false
+
+  link_safety_profile_fail_open:
+    default: false
+    client: false
+
+  link_safety_failure_policy:
+    default: "fail_open"
+    type: enum
+    choices:
+      - fail_open
+      - fail_closed
+    client: false
+
+  link_safety_trusted_domains:
+    default: ""
+    type: list
+    client: false
+
+  link_safety_trusted_domains_include_subdomains:
+    default: false
+    client: false
+
+  link_safety_max_external_urls_per_submission:
+    default: 50
+    type: integer
+    min: 1
+    max: 100
+    client: false
+
+  link_safety_connect_timeout_ms:
+    default: 750
+    type: integer
+    min: 250
+    max: 5000
+    client: false
+
+  link_safety_read_timeout_ms:
+    default: 1800
+    type: integer
+    min: 500
+    max: 10000
+    client: false
+
+  link_safety_validation_budget_ms:
+    default: 3000
+    type: integer
+    min: 1000
+    max: 10000
+    client: false
+
+  link_safety_web_risk_clean_cache_minutes:
+    default: 15
+    type: integer
+    min: 1
+    max: 1440
+    client: false
+
+  link_safety_urlhaus_enabled:
+    default: false
+    client: false
+
+  link_safety_urlhaus_auth_key:
+    default: ""
+    type: string
+    secret: true
+    client: false
+
+  link_safety_urlhaus_private_surfaces:
+    default: false
+    client: false
+
+  link_safety_detection_retention_days:
+    default: 90
+    type: integer
+    min: 30
+    max: 365
+    client: false
+
+  link_safety_statistics_retention_days:
+    default: 365
+    type: integer
+    min: 30
+    max: 1825
+    client: false
+
+  link_safety_user_notes_mode:
+    default: "threshold_only"
+    type: enum
+    choices:
+      - off
+      - threshold_only
+      - every_confirmed
+    client: false
+
+  link_safety_repeat_threat_threshold_count:
+    default: 3
+    type: integer
+    min: 2
+    max: 20
+    client: false
+
+  link_safety_repeat_threat_threshold_hours:
+    default: 24
+    type: integer
+    min: 1
+    max: 168
+    client: false
+
+  link_safety_circuit_breaker_failure_count:
+    default: 5
+    type: integer
+    min: 2
+    max: 20
+    client: false
+
+  link_safety_circuit_breaker_window_minutes:
+    default: 5
+    type: integer
+    min: 1
+    max: 60
+    client: false
+
+  link_safety_circuit_breaker_open_minutes:
+    default: 3
+    type: integer
+    min: 1
+    max: 60
+    client: false
