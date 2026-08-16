@@ -25,7 +25,7 @@ Add the plugin to the Discourse container configuration in the normal way and re
 2. Select the appropriate primary provider.
 3. Configure `link_safety_google_api_key`.
 4. If Safe Browsing is selected, enable `link_safety_safe_browsing_noncommercial_acknowledged` only when the deployment is actually eligible.
-5. Before using either Google provider, make Google's required user-protection notice visible to users (for example in the site's accepted Terms/Community Guidelines) and only then enable `link_safety_google_user_protection_notice_acknowledged`.
+5. Before using either Google provider, make Google's required user-protection notice visible to users (for example in the site's accepted Terms/Community Guidelines). This is an operator/documentation obligation and does not gate runtime provider operation.
 6. Leave URLhaus disabled initially unless its supplemental check is required.
 7. Start with `link_safety_mode = monitor`.
 8. Enable `link_safety_enabled` and run the provider test from Admin > Plugins > Link Safety > Health.
@@ -118,7 +118,7 @@ The plugin defaults to **disabled** and **monitor** mode. Configure and test the
 
 ## Google provider user protection and attribution
 
-Before enabling the acknowledgement setting for either Google provider, the site operator must make a user-protection notice visible to users before they use Link Safety. The notice must explain that Google-based protection can produce both false positives and false negatives. Google suggests language equivalent to: Google works to provide accurate and up-to-date information about unsafe web resources, but cannot guarantee that its information is comprehensive and error-free; some risky sites may not be identified and some safe sites may be identified in error.
+Before using either Google provider, the site operator must make a user-protection notice visible to users before they use Link Safety. The notice must explain that Google-based protection can produce both false positives and false negatives. This documentation/Terms obligation is deliberately not implemented as a runtime Site Setting gate: provider operation depends on the actual provider credentials and, for Safe Browsing v5, the separate non-commercial eligibility acknowledgement. Google suggests language equivalent to: Google works to provide accurate and up-to-date information about unsafe web resources, but cannot guarantee that its information is comprehensive and error-free; some risky sites may not be identified and some safe sites may be identified in error.
 
 When a warning is based on a Google verdict, Link Safety includes Google attribution and an advisory reference. URLhaus-only warnings deliberately do not include Google attribution. Safe Browsing threat verdicts are never enforced beyond 30 minutes without fresh Google data. Web Risk threat verdicts require and respect the provider's valid `expireTime`; missing, malformed, or expired positive-cache timestamps are treated as provider errors. Empty Web Risk Lookup responses are not negatively cached because Lookup does not define a negative-cache lifetime.
 

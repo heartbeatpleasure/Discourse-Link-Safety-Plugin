@@ -98,10 +98,6 @@ plugins:
     max: 10000
     client: false
 
-  link_safety_google_user_protection_notice_acknowledged:
-    default: false
-    client: false
-
   link_safety_lookup_budget_per_user_10_minutes:
     default: 100
     type: integer

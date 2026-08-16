@@ -9,10 +9,7 @@ module ::LinkSafety
       ENDPOINT = "https://webrisk.googleapis.com/v1/uris:search".freeze
       THREAT_TYPES = %w[MALWARE SOCIAL_ENGINEERING UNWANTED_SOFTWARE].freeze
 
-      def configured?
-        SiteSetting.link_safety_google_api_key.present? &&
-          SiteSetting.link_safety_google_user_protection_notice_acknowledged
-      end
+      def configured? = SiteSetting.link_safety_google_api_key.present?
 
       def check_many(canonical_urls, deadline: nil)
         return configuration_errors(canonical_urls) unless configured?
@@ -112,12 +109,7 @@ module ::LinkSafety
       end
 
       def configuration_errors(items)
-        code =
-          if SiteSetting.link_safety_google_api_key.blank?
-            :missing_api_key
-          else
-            :google_user_protection_notice_not_acknowledged
-          end
+        code = :missing_api_key
         ::LinkSafety::HealthRegistry.failure!(provider: PROVIDER, code: code)
         items.to_h do |item|
           [item.fingerprint, Providers::Base::Response.new(status: "error", threat_types: [], expires_at: Time.zone.now + 5.minutes, error_code: code.to_s, latency_ms: nil, provider_calls: 0)]

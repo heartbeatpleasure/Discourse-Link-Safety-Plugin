@@ -20,7 +20,6 @@ module ::LinkSafety
       response_too_large
       missing_api_key
       safe_browsing_usage_not_acknowledged
-      google_user_protection_notice_not_acknowledged
       private_surface_lookup_disabled
       private_network_full_url_provider_disabled
     ].freeze
@@ -47,7 +46,6 @@ module ::LinkSafety
       return true if %w[
         missing_api_key
         safe_browsing_usage_not_acknowledged
-        google_user_protection_notice_not_acknowledged
         private_surface_lookup_disabled
         private_network_full_url_provider_disabled
       ].include?(value)

@@ -29,8 +29,7 @@ module ::LinkSafety
 
       def configured?
         SiteSetting.link_safety_google_api_key.present? &&
-          SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged &&
-          SiteSetting.link_safety_google_user_protection_notice_acknowledged
+          SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged
       end
 
       def check_many(canonical_urls, deadline: nil)
@@ -401,10 +400,8 @@ module ::LinkSafety
         code =
           if SiteSetting.link_safety_google_api_key.blank?
             :missing_api_key
-          elsif !SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged
-            :safe_browsing_usage_not_acknowledged
           else
-            :google_user_protection_notice_not_acknowledged
+            :safe_browsing_usage_not_acknowledged
           end
         ::LinkSafety::HealthRegistry.failure!(provider: PROVIDER, code: code)
         items.to_h do |item|

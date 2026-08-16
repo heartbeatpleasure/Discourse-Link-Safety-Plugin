@@ -171,12 +171,15 @@ RSpec.describe LinkSafety::Providers::GoogleSafeBrowsingV5 do
     before do
       SiteSetting.link_safety_google_api_key = "test-key"
       SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged = true
-      SiteSetting.link_safety_google_user_protection_notice_acknowledged = true
       allow(LinkSafety::Statistics).to receive(:bump!)
       allow(LinkSafety::CircuitBreaker).to receive(:record_success)
       allow(LinkSafety::CircuitBreaker).to receive(:record_failure)
       allow(LinkSafety::HealthRegistry).to receive(:success!)
       allow(LinkSafety::HealthRegistry).to receive(:failure!)
+    end
+
+    it "is configured from the API key and non-commercial eligibility without a separate notice acknowledgement gate" do
+      expect(provider.configured?).to eq(true)
     end
 
     def http_ok(body, content_type: "application/x-protobuf")

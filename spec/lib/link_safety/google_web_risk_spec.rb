@@ -5,13 +5,16 @@ RSpec.describe LinkSafety::Providers::GoogleWebRisk do
 
   before do
     SiteSetting.link_safety_google_api_key = "test-key"
-    SiteSetting.link_safety_google_user_protection_notice_acknowledged = true
     SiteSetting.link_safety_validation_budget_ms = 3000
     allow(LinkSafety::Statistics).to receive(:bump!)
     allow(LinkSafety::CircuitBreaker).to receive(:record_success)
     allow(LinkSafety::CircuitBreaker).to receive(:record_failure)
     allow(LinkSafety::HealthRegistry).to receive(:success!)
     allow(LinkSafety::HealthRegistry).to receive(:failure!)
+  end
+
+  it "is configured from the API key without a separate notice acknowledgement gate" do
+    expect(provider.configured?).to eq(true)
   end
 
   def http_ok(payload = {})

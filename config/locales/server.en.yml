@@ -18,7 +18,6 @@ en:
     link_safety_connect_timeout_ms: "Provider connection timeout in milliseconds."
     link_safety_read_timeout_ms: "Provider read timeout in milliseconds."
     link_safety_validation_budget_ms: "Maximum synchronous validation budget in milliseconds for provider lookups in one submission. In Enforce mode, links that cannot be verified within this budget are rejected instead of being silently allowed."
-    link_safety_google_user_protection_notice_acknowledged: "Confirm that users are shown Google's required protection notice before using Link Safety: Google-based protection can have both false positives and false negatives. Required for either Google provider."
     link_safety_lookup_budget_per_user_10_minutes: "Maximum uncached external URLs one user may send to remote reputation providers within 10 minutes. This is separate from normal Discourse posting rate limits."
     link_safety_lookup_budget_global_per_minute: "Maximum uncached external URLs the site may send to remote reputation providers per minute. Keep this below provider/project quotas with operational headroom."
     link_safety_web_risk_private_surfaces: "Allow complete private-message and direct-chat URLs to be sent to Google Web Risk Lookup. Disabled by default because Lookup sends the full URL to Google."
@@ -43,7 +42,6 @@ en:
     admin_alerts:
       missing_api_key: "The selected Link Safety provider has no Google API key configured."
       safe_browsing_usage_not_acknowledged: "Safe Browsing is selected but the non-commercial usage acknowledgement is not enabled."
-      google_user_protection_notice_not_acknowledged: "A Google provider is selected but the required user-protection notice acknowledgement is not enabled. Ensure users are informed that Google-based protection can produce false positives and false negatives before enabling this acknowledgement."
       web_risk_private_surfaces_disabled: "Web Risk Lookup is selected while private-message or direct-chat scanning is enabled, but full private URLs are not allowed to be sent to Web Risk. Private links will not be sent to Google unless link_safety_web_risk_private_surfaces is explicitly enabled."
       circuit_open: "The provider circuit breaker is open until %{until_time}."
       security_control_failures: "Link Safety recorded recent internal security-control failures: %{summary}. Review the Health page and server logs."
