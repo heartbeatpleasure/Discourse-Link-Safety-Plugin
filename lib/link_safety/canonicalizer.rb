@@ -2,77 +2,111 @@
 
 require "digest"
 require "ipaddr"
+require "mini_suffix"
+require "socket"
 require "uri"
 
 module ::LinkSafety
   class Canonicalizer
+    MAX_URL_BYTES = 16 * 1024
+    MAX_UNESCAPE_PASSES = 64
+    NAT64_WELL_KNOWN_PREFIX = IPAddr.new("64:ff9b::/96")
+
     CanonicalUrl = Data.define(:original, :canonical, :host, :fingerprint)
+    Outcome = Data.define(:status, :item, :error_code) do
+      def ok? = status.to_s == "ok"
+      def ignored? = status.to_s == "ignored"
+      def error? = status.to_s == "error"
+    end
+
+    class CanonicalizationError < StandardError
+      attr_reader :code
+
+      def initialize(code)
+        @code = code.to_s
+        super(@code)
+      end
+    end
 
     def self.call(url)
-      new(url).call
+      analyze(url).item
+    end
+
+    def self.analyze(url)
+      new(url).analyze
     end
 
     def initialize(url)
       @original = url.to_s
     end
 
-    def call
+    def analyze
       value = @original.delete("\t\r\n").strip
-      return if value.empty?
+      return Outcome.new(status: "ignored", item: nil, error_code: "blank") if value.empty?
+      raise CanonicalizationError, :url_too_long if value.bytesize > MAX_URL_BYTES
+
+      explicit_scheme = value[/\A([a-z][a-z0-9+.-]*):/i, 1]&.downcase
+      if !explicit_scheme.to_s.empty? && !%w[http https].include?(explicit_scheme)
+        return Outcome.new(status: "ignored", item: nil, error_code: "unsupported_scheme")
+      end
 
       if value.start_with?("//")
         value = "http:#{value}"
-      elsif !value.match?(%r{\Ahttps?://}i)
+      elsif explicit_scheme.to_s.empty?
         value = "http://#{value}"
       end
+
       # Safe Browsing removes the literal fragment before percent-unescaping.
       value = value.split("#", 2).first
+      value = repeatedly_unescape(value)
 
       uri = parse_url(value)
-      return unless uri
-      return unless %w[http https].include?(uri.scheme.to_s.downcase)
-      return if uri.host.to_s.empty?
+      raise CanonicalizationError, :invalid_url unless uri
+      return Outcome.new(status: "ignored", item: nil, error_code: "unsupported_scheme") unless %w[http https].include?(uri.scheme.to_s.downcase)
+      raise CanonicalizationError, :invalid_url if uri.host.to_s.empty?
 
       scheme = uri.scheme.downcase
-      host = canonical_host(repeatedly_unescape(uri.host.to_s))
-      return if host.to_s.empty?
+      host = canonical_host(uri.host.to_s)
+      raise CanonicalizationError, :invalid_url if host.to_s.empty?
 
       raw_path = uri.path.to_s.empty? ? "/" : uri.path.to_s
-      path = canonical_path(repeatedly_unescape(raw_path))
-      query = uri.query.nil? ? nil : repeatedly_unescape(uri.query.to_s)
+      path = canonical_path(raw_path)
+      query = uri.query.nil? ? nil : uri.query.to_s
 
       canonical = "#{scheme}://#{safe_browsing_escape(host)}#{safe_browsing_escape(path)}"
       canonical += "?#{safe_browsing_escape(query)}" unless query.nil?
 
-      CanonicalUrl.new(
+      item = CanonicalUrl.new(
         original: @original,
         canonical: canonical,
         host: safe_browsing_escape(host),
         fingerprint: Digest::SHA256.hexdigest(canonical),
       )
+      Outcome.new(status: "ok", item: item, error_code: nil)
+    rescue CanonicalizationError => e
+      Outcome.new(status: "error", item: nil, error_code: e.code)
     rescue URI::Error, ArgumentError, EncodingError
-      nil
+      Outcome.new(status: "error", item: nil, error_code: "invalid_url")
+    rescue StandardError => e
+      Rails.logger.warn("[LinkSafety] canonicalization failed class=#{e.class.name}") if defined?(Rails)
+      Outcome.new(status: "error", item: nil, error_code: "canonicalization_failure")
     end
 
     def self.safe_browsing_expressions(canonical_url)
+      safe_browsing_expressions!(canonical_url)
+    rescue CanonicalizationError, URI::Error, ArgumentError
+      []
+    end
+
+    def self.safe_browsing_expressions!(canonical_url)
       uri = URI.parse(canonical_url)
       host = uri.host.to_s
       path = uri.path.to_s.empty? ? "/" : uri.path.to_s
       query = uri.query
-      return [] if host.empty?
+      raise CanonicalizationError, :canonicalization_failure if host.empty?
 
-      hosts =
-        if ip_address?(host)
-          [host]
-        else
-          labels = host.split(".")
-          list = [host]
-          # Full hostname plus up to four suffixes. For long hosts, only suffixes
-          # containing the last five components are considered.
-          start = [labels.length - 5, 1].max
-          (start..(labels.length - 2)).each { |idx| list << labels[idx..].join(".") } if labels.length > 1
-          list.uniq.first(5)
-        end
+      hosts = host_candidates(host)
+      raise CanonicalizationError, :canonicalization_failure if hosts.empty?
 
       paths = []
       paths << "#{path}?#{query}" unless query.nil?
@@ -85,9 +119,11 @@ module ::LinkSafety
       path.each_char.with_index { |ch, idx| slash_positions << idx if ch == "/" && idx.positive? }
       slash_positions.first(4).each { |idx| paths << path[0..idx] }
 
-      hosts.product(paths.uniq.first(6)).map { |h, p| "#{h}#{p}" }.uniq
-    rescue URI::Error, ArgumentError
-      []
+      expressions = hosts.product(paths.uniq.first(6)).map { |h, p| "#{h}#{p}" }.uniq
+      raise CanonicalizationError, :canonicalization_failure if expressions.empty?
+      expressions
+    rescue URI::Error, ArgumentError => e
+      raise CanonicalizationError, :canonicalization_failure, cause: e
     end
 
     def self.ip_address?(host)
@@ -97,13 +133,39 @@ module ::LinkSafety
       false
     end
 
-    private
+    def self.host_candidates(host)
+      return [host] if ip_address?(host)
 
+      labels = host.split(".")
+      return [host] if labels.length <= 1
+
+      registrable = MiniSuffix.domain(host)
+      registrable = nil if registrable.to_s.empty?
+      registrable ||= labels.last(2).join(".")
+      base_labels = registrable.split(".")
+      base_start = labels.length - base_labels.length
+      return [host] if base_start.negative?
+
+      candidates = [registrable]
+      current = registrable
+      idx = base_start - 1
+      while idx >= 0 && candidates.length < 4
+        current = "#{labels[idx]}.#{current}"
+        candidates << current
+        idx -= 1
+      end
+      candidates << host
+      candidates.uniq.first(5)
+    rescue StandardError => e
+      raise CanonicalizationError.new(:canonicalization_failure), cause: e
+    end
+    private_class_method :host_candidates
+
+    private
 
     def parse_url(value)
       URI.parse(value)
     rescue URI::InvalidURIError
-      # Discourse ships Addressable and uses it for Unicode/IDN URL normalization.
       begin
         Addressable::URI.parse(value)
       rescue StandardError
@@ -113,16 +175,21 @@ module ::LinkSafety
 
     def repeatedly_unescape(value)
       current = value.to_s
-      16.times do
+      MAX_UNESCAPE_PASSES.times do
         decoded = URI::DEFAULT_PARSER.unescape(current)
-        break if decoded == current
+        return current if decoded == current
         current = decoded
+      end
+
+      if current.match?(/%[0-9a-fA-F]{2}/)
+        raise CanonicalizationError, :excessive_percent_encoding
       end
       current
     end
 
     def canonical_host(host)
-      normalized = host.to_s.downcase.gsub(/\A\.+|\.+\z/, "").gsub(/\.{2,}/, ".")
+      normalized = host.to_s.downcase.gsub(/\A\[|\]\z/, "")
+      normalized = normalized.gsub(/\A\.+|\.+\z/, "").gsub(/\.{2,}/, ".")
       return if normalized.empty?
 
       if (ipv4 = normalize_ipv4(normalized))
@@ -131,13 +198,15 @@ module ::LinkSafety
 
       begin
         ip = IPAddr.new(normalized)
-        return ip.to_s
+        return ip.native.to_s if ip.ipv4_mapped?
+        if ip.ipv6? && NAT64_WELL_KNOWN_PREFIX.include?(ip)
+          return IPAddr.new(ip.to_i & 0xFFFF_FFFF, Socket::AF_INET).to_s
+        end
+        return ip.ipv6? ? "[#{ip}]" : ip.to_s
       rescue IPAddr::InvalidAddressError
       end
 
-      if !normalized.ascii_only?
-        normalized = Addressable::IDNA.to_ascii(normalized).downcase
-      end
+      normalized = Addressable::IDNA.to_ascii(normalized).downcase unless normalized.ascii_only?
       normalized
     rescue ArgumentError
       nil

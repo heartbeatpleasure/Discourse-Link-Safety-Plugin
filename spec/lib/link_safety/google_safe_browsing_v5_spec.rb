@@ -68,15 +68,13 @@ RSpec.describe LinkSafety::Providers::GoogleSafeBrowsingV5 do
       expect(provider.send(:decode_bytes, unpadded)).to eq(value)
     end
 
-    it "builds a v5 hashes search request without an unsupported output-format parameter" do
-      SiteSetting.link_safety_google_api_key = "test-key"
+    it "builds a v5 hashes search request without API-key or output-format query parameters" do
       prefix = "\xBA\x78\x16\xBF".b
       uri = provider.send(:build_search_uri, [prefix])
       decoded = URI.decode_www_form(uri.query)
 
       expect(decoded).to include(["hashPrefixes", Base64.strict_encode64(prefix)])
-      expect(decoded).to include(["key", "test-key"])
-      expect(decoded.map(&:first)).not_to include("alt", "$alt")
+      expect(decoded.map(&:first)).not_to include("key", "alt", "$alt")
     end
 
     it "decodes the observed clean protobuf response and its 300 second cache duration" do
@@ -185,6 +183,30 @@ RSpec.describe LinkSafety::Providers::GoogleSafeBrowsingV5 do
       response.body = body
       response["Content-Type"] = content_type
       response
+    end
+
+
+    it "sends the API key in X-Goog-Api-Key and applies the validation deadline" do
+      item = LinkSafety::Canonicalizer.call("https://example.com/")
+      expect(provider).to receive(:request) do |uri, headers:, deadline:, **_options|
+        expect(URI.decode_www_form(uri.query.to_s).map(&:first)).not_to include("key")
+        expect(headers["X-Goog-Api-Key"]).to eq("test-key")
+        expect(headers["Accept"]).to eq("application/x-protobuf")
+        expect(deadline).to be_a(Numeric)
+        [http_ok("\x12\x03\x08\xAC\x02".b), 20]
+      end
+
+      expect(provider.check_many([item]).fetch(item.fingerprint).status).to eq("clean")
+    end
+
+    it "does not count non-transient 4xx failures towards the circuit breaker" do
+      item = LinkSafety::Canonicalizer.call("https://example.com/")
+      response = Net::HTTPForbidden.new("1.1", "403", "Forbidden")
+      response.body = "{}"
+      allow(provider).to receive(:request).and_return([response, 20])
+
+      expect(provider.check_many([item]).fetch(item.fingerprint).error_code).to eq("http_403")
+      expect(LinkSafety::CircuitBreaker).not_to have_received(:record_failure)
     end
 
     it "classifies the observed empty protobuf response as clean" do

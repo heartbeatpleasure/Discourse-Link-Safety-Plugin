@@ -2,7 +2,7 @@
 
 # name: Discourse-Link-Safety-Plugin
 # about: Checks external links in Discourse content against configurable malicious URL reputation providers.
-# version: 1.0.7
+# version: 1.1.0
 # authors: Chris
 
 add_admin_route "admin.link_safety.title", "linkSafety"
@@ -27,6 +27,8 @@ after_initialize do
     lib/link_safety/canonicalizer.rb
     lib/link_safety/extractor.rb
     lib/link_safety/trusted_domains.rb
+    lib/link_safety/network_policy.rb
+    lib/link_safety/verification_policy.rb
     lib/link_safety/circuit_breaker.rb
     lib/link_safety/health_registry.rb
     lib/link_safety/statistics.rb
@@ -62,9 +64,11 @@ after_initialize do
     enabled = surface == :private_message ? SiteSetting.link_safety_scan_private_messages : SiteSetting.link_safety_scan_public_posts
     next unless enabled
 
+    extraction = ::LinkSafety::Extractor.post_raw_result(raw, topic_id)
     ::LinkSafety::ContentValidator.validate_model!(
       model: self,
-      urls: ::LinkSafety::Extractor.from_post_raw(raw, topic_id),
+      urls: extraction.urls,
+      extraction_error: extraction.error_code,
       surface: surface,
       user: user,
     )
@@ -80,15 +84,19 @@ after_initialize do
     next unless SiteSetting.link_safety_enabled && SiteSetting.link_safety_scan_profile_links
 
     urls = []
+    extraction_error = nil
     urls << website if website.present? && (new_record? || will_save_change_to_website?)
     if bio_raw.present? && (new_record? || will_save_change_to_bio_raw?)
-      urls.concat(::LinkSafety::Extractor.from_cooked(::PrettyText.cook(bio_raw)))
+      extraction = ::LinkSafety::Extractor.markdown_result(bio_raw)
+      urls.concat(extraction.urls)
+      extraction_error ||= extraction.error_code
     end
-    next if urls.blank?
+    next if urls.blank? && extraction_error.blank?
 
     ::LinkSafety::ContentValidator.validate_model!(
       model: self,
       urls: urls,
+      extraction_error: extraction_error,
       surface: :profile,
       user: user,
       failure_policy: SiteSetting.link_safety_profile_fail_open ? :fail_open : :fail_closed,
@@ -105,9 +113,11 @@ after_initialize do
       enabled = is_dm ? SiteSetting.link_safety_scan_chat_direct_messages : SiteSetting.link_safety_scan_chat_public
       next unless enabled
 
+      extraction = ::LinkSafety::Extractor.chat_message_result(message, user: user)
       ::LinkSafety::ContentValidator.validate_model!(
         model: self,
-        urls: ::LinkSafety::Extractor.from_chat_message(message, user: user),
+        urls: extraction.urls,
+        extraction_error: extraction.error_code,
         surface: surface,
         user: user,
       )

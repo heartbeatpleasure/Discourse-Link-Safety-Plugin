@@ -16,7 +16,7 @@ RSpec.describe LinkSafety::ContentValidator do
     allow(LinkSafety::Statistics).to receive(:bump!)
   end
 
-  def result(status)
+  def result(status, error_code: nil)
     LinkSafety::Result.new(
       url: "https://example.com/",
       canonical_url: "https://example.com/",
@@ -27,7 +27,7 @@ RSpec.describe LinkSafety::ContentValidator do
       provider: "safe_browsing_v5",
       checked_at: Time.zone.now,
       expires_at: 5.minutes.from_now,
-      error_code: status == "error" ? "read_timeout" : nil,
+      error_code: status == "error" ? (error_code || "read_timeout") : nil,
       source: "spec",
     )
   end
@@ -87,6 +87,43 @@ RSpec.describe LinkSafety::ContentValidator do
     )
 
     expect(model.errors[:base]).to include(I18n.t("link_safety.errors.unavailable"))
+  end
+
+  it "fails closed on canonicalization integrity failures in enforce mode even when provider outages fail open" do
+    SiteSetting.link_safety_mode = "enforce"
+    SiteSetting.link_safety_failure_policy = "fail_open"
+
+    described_class.validate_model!(
+      model: model,
+      urls: [],
+      extraction_error: "extractor_failure",
+      surface: :public_post,
+      user: user,
+    )
+
+    expect(model.errors[:base]).to include(I18n.t("link_safety.errors.unavailable"))
+  end
+
+  it "fails closed when the validation budget is exhausted in enforce mode" do
+    SiteSetting.link_safety_mode = "enforce"
+    SiteSetting.link_safety_failure_policy = "fail_open"
+    allow(LinkSafety::Checker).to receive(:check_many).and_return(
+      [result("error", error_code: "validation_budget_exceeded")],
+    )
+
+    described_class.validate_model!(model: model, urls: ["https://example.com/"], surface: :public_post, user: user)
+
+    expect(model.errors[:base]).to include(I18n.t("link_safety.errors.unavailable"))
+  end
+
+  it "still permits a transient provider timeout when enforce mode explicitly uses fail-open" do
+    SiteSetting.link_safety_mode = "enforce"
+    SiteSetting.link_safety_failure_policy = "fail_open"
+    allow(LinkSafety::Checker).to receive(:check_many).and_return([result("error", error_code: "read_timeout")])
+
+    described_class.validate_model!(model: model, urls: ["https://example.com/"], surface: :public_post, user: user)
+
+    expect(model.errors).to be_empty
   end
 
 end

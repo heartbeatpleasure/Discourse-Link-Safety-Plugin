@@ -29,7 +29,8 @@ module ::LinkSafety
         else
           raw
         end
-      host = host.downcase.gsub(/\A\.+|\.+\z/, "").gsub(/\.{2,}/, ".")
+      host = host.downcase.gsub(/\A\[|\]\z/, "")
+      host = host.gsub(/\A\.+|\.+\z/, "").gsub(/\.{2,}/, ".")
       host = Addressable::IDNA.to_ascii(host).downcase unless host.ascii_only?
       host.presence
     rescue Addressable::URI::InvalidURIError, ArgumentError

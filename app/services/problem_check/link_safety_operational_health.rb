@@ -18,6 +18,12 @@ class ProblemCheck::LinkSafetyOperationalHealth < ProblemCheck
       issues << I18n.t("link_safety.admin_alerts.safe_browsing_usage_not_acknowledged")
     end
 
+    if provider == "web_risk_lookup" &&
+         (SiteSetting.link_safety_scan_private_messages || SiteSetting.link_safety_scan_chat_direct_messages) &&
+         !SiteSetting.link_safety_web_risk_private_surfaces
+      issues << I18n.t("link_safety.admin_alerts.web_risk_private_surfaces_disabled")
+    end
+
     if ::LinkSafety::CircuitBreaker.open?(provider)
       issues << I18n.t(
         "link_safety.admin_alerts.circuit_open",

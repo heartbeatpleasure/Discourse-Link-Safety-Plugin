@@ -17,8 +17,10 @@ en:
     link_safety_max_external_urls_per_submission: "Maximum unique external HTTP(S) links that may require classification in one submission."
     link_safety_connect_timeout_ms: "Provider connection timeout in milliseconds."
     link_safety_read_timeout_ms: "Provider read timeout in milliseconds."
-    link_safety_validation_budget_ms: "Maximum synchronous Web Risk validation budget in milliseconds for a multi-link submission. Remaining uncached URLs fail according to the configured failure policy when the budget is exhausted."
+    link_safety_validation_budget_ms: "Maximum synchronous validation budget in milliseconds for provider lookups in one submission. In Enforce mode, links that cannot be verified within this budget are rejected instead of being silently allowed."
     link_safety_web_risk_clean_cache_minutes: "How long an empty Web Risk Lookup result may be cached locally."
+    link_safety_web_risk_private_surfaces: "Allow complete private-message and direct-chat URLs to be sent to Google Web Risk Lookup. Disabled by default because Lookup sends the full URL to Google."
+    link_safety_full_url_providers_allow_private_networks: "Allow full-URL providers such as Web Risk Lookup and URLhaus to receive URLs targeting private, loopback, link-local, reserved, or intranet hosts. Disabled by default for privacy."
     link_safety_urlhaus_enabled: "Also query URLhaus for known malware-distribution URLs."
     link_safety_urlhaus_auth_key: "abuse.ch Auth-Key used for URLhaus."
     link_safety_urlhaus_private_surfaces: "Allow full private-message and direct-chat URLs to be sent to URLhaus. Disabled by default for privacy."
@@ -39,6 +41,7 @@ en:
     admin_alerts:
       missing_api_key: "The selected Link Safety provider has no Google API key configured."
       safe_browsing_usage_not_acknowledged: "Safe Browsing is selected but the non-commercial usage acknowledgement is not enabled."
+      web_risk_private_surfaces_disabled: "Web Risk Lookup is selected while private-message or direct-chat scanning is enabled, but full private URLs are not allowed to be sent to Web Risk. Private links will not be sent to Google unless link_safety_web_risk_private_surfaces is explicitly enabled."
       circuit_open: "The provider circuit breaker is open until %{until_time}."
     errors:
       malicious_link: "For your safety, this link can’t be posted because it may lead to an unsafe website. Please remove or replace the link and try again."

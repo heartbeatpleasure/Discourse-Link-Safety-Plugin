@@ -35,19 +35,29 @@ module ::LinkSafety
         return configuration_errors(canonical_urls) unless configured?
         return {} if canonical_urls.empty?
 
+        deadline = validation_deadline
         digest_maps = {}
         prefix_sets = {}
+        invalid_results = {}
+
         canonical_urls.each do |item|
-          expressions = ::LinkSafety::Canonicalizer.safe_browsing_expressions(item.canonical)
-          digests = expressions.map { |expression| Digest::SHA256.digest(expression) }.uniq
-          digest_maps[item.fingerprint] = digests
-          prefix_sets[item.fingerprint] = digests.map { |digest| digest.byteslice(0, 4) }.uniq
+          begin
+            expressions = ::LinkSafety::Canonicalizer.safe_browsing_expressions!(item.canonical)
+            digests = expressions.map { |expression| Digest::SHA256.digest(expression) }.uniq
+            raise ::LinkSafety::Canonicalizer::CanonicalizationError, :canonicalization_failure if digests.empty?
+
+            digest_maps[item.fingerprint] = digests
+            prefix_sets[item.fingerprint] = digests.map { |digest| digest.byteslice(0, 4) }.uniq
+          rescue ::LinkSafety::Canonicalizer::CanonicalizationError => e
+            invalid_results[item.fingerprint] = build_error_response(e.code)
+          end
         end
 
+        valid_items = canonical_urls.reject { |item| invalid_results.key?(item.fingerprint) }
         chunks = []
         current = []
         current_count = 0
-        canonical_urls.each do |item|
+        valid_items.each do |item|
           count = prefix_sets[item.fingerprint].length
           if current.any? && current_count + count > 1000
             chunks << current
@@ -59,9 +69,13 @@ module ::LinkSafety
         end
         chunks << current if current.any?
 
-        results = {}
+        results = invalid_results
         chunks.each do |items|
-          response_results = request_chunk(items, prefix_sets, digest_maps)
+          if deadline_expired?(deadline)
+            results.merge!(error_results(items, :validation_budget_exceeded))
+            next
+          end
+          response_results = request_chunk(items, prefix_sets, digest_maps, deadline: deadline)
           results.merge!(response_results)
         end
         results
@@ -69,17 +83,26 @@ module ::LinkSafety
 
       private
 
-      def request_chunk(items, prefix_sets, digest_maps)
+      def request_chunk(items, prefix_sets, digest_maps, deadline:)
         prefixes = items.flat_map { |item| prefix_sets[item.fingerprint] }.uniq
-        uri = build_search_uri(prefixes)
+        return error_results(items, :canonicalization_failure) if prefixes.empty?
 
-        raw = request(uri)
+        uri = build_search_uri(prefixes)
+        ::LinkSafety::Statistics.bump!(PROVIDER, provider_calls: 1)
+        raw = request(
+          uri,
+          headers: {
+            "Accept" => "application/x-protobuf",
+            "X-Goog-Api-Key" => SiteSetting.link_safety_google_api_key,
+          },
+          deadline: deadline,
+        )
         if raw.length == 3
           _response, _latency, error = raw
           return error_results(items, error)
         end
         response, latency = raw
-        ::LinkSafety::Statistics.bump!(PROVIDER, provider_calls: 1, latency_total_ms: latency, latency_samples: 1)
+        ::LinkSafety::Statistics.bump!(PROVIDER, latency_total_ms: latency, latency_samples: 1)
 
         unless response.is_a?(Net::HTTPSuccess)
           return error_results(items, "http_#{response.code}", latency)
@@ -142,7 +165,6 @@ module ::LinkSafety
 
       def build_search_uri(prefixes)
         params = prefixes.map { |prefix| ["hashPrefixes", Base64.strict_encode64(prefix)] }
-        params << ["key", SiteSetting.link_safety_google_api_key]
         URI("#{ENDPOINT}?#{URI.encode_www_form(params)}")
       end
 
@@ -341,13 +363,22 @@ module ::LinkSafety
       end
 
       def error_results(items, error, latency = nil)
-        ::LinkSafety::CircuitBreaker.record_failure(PROVIDER)
+        ::LinkSafety::CircuitBreaker.record_failure(PROVIDER) if transient_failure?(error)
         ::LinkSafety::HealthRegistry.failure!(provider: PROVIDER, code: error, latency_ms: latency)
         ::LinkSafety::Statistics.bump!(PROVIDER, errors: 1)
         expires_at = Time.zone.now + 1.minute
-        items.to_h do |item|
-          [item.fingerprint, Providers::Base::Response.new(status: "error", threat_types: [], expires_at: expires_at, error_code: error.to_s, latency_ms: latency, provider_calls: 0)]
-        end
+        items.to_h { |item| [item.fingerprint, build_error_response(error, latency, expires_at: expires_at)] }
+      end
+
+      def build_error_response(error, latency = nil, expires_at: Time.zone.now + 1.minute)
+        Providers::Base::Response.new(
+          status: "error",
+          threat_types: [],
+          expires_at: expires_at,
+          error_code: error.to_s,
+          latency_ms: latency,
+          provider_calls: 0,
+        )
       end
 
       def configuration_errors(items)

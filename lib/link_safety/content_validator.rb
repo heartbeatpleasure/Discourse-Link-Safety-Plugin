@@ -2,7 +2,7 @@
 
 module ::LinkSafety
   class ContentValidator
-    def self.validate_model!(model:, urls:, surface:, user:, failure_policy: nil)
+    def self.validate_model!(model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil)
       ::LinkSafety::DetectionRecorder.clear_queued!(model)
 
       _value, capture = ::LinkSafety::Statistics.capture do
@@ -12,6 +12,7 @@ module ::LinkSafety
           surface: surface,
           user: user,
           failure_policy: failure_policy,
+          extraction_error: extraction_error,
         )
       end
 
@@ -34,11 +35,29 @@ module ::LinkSafety
       nil
     end
 
-    def self.validate_model_without_statistics_capture!(model:, urls:, surface:, user:, failure_policy: nil)
+    def self.validate_model_without_statistics_capture!(model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil)
+      effective_failure_policy = (failure_policy || SiteSetting.link_safety_failure_policy).to_s
+
+      if extraction_error.present?
+        handle_verification_errors!(
+          model,
+          [extraction_error],
+          failure_policy: effective_failure_policy,
+        )
+        return
+      end
+
       urls = Array(urls).compact.uniq
       return if urls.empty?
 
-      canonical = urls.filter_map { |url| ::LinkSafety::Canonicalizer.call(url) }
+      outcomes = urls.map { |url| ::LinkSafety::Canonicalizer.analyze(url) }
+      canonical_errors = outcomes.select(&:error?).map(&:error_code)
+      if canonical_errors.any? && ::LinkSafety::VerificationPolicy.block_errors?(canonical_errors, failure_policy: effective_failure_policy)
+        add_verification_error!(model, canonical_errors)
+        return
+      end
+
+      canonical = outcomes.filter_map { |outcome| outcome.item if outcome.ok? }
       external = canonical.reject do |item|
         ::LinkSafety::TrustedDomains.local_host?(item.host) || ::LinkSafety::TrustedDomains.trusted?(item.host)
       end
@@ -77,16 +96,28 @@ module ::LinkSafety
 
       return if errors.empty?
 
-      effective_failure_policy = (failure_policy || SiteSetting.link_safety_failure_policy).to_s
-      if effective_failure_policy == "fail_closed"
-        message = errors.any? do |result|
-          %w[missing_api_key safe_browsing_usage_not_acknowledged].include?(result.error_code.to_s)
-        end ? "link_safety.errors.configuration" : "link_safety.errors.unavailable"
-        model.errors.add(:base, I18n.t(message))
+      if ::LinkSafety::VerificationPolicy.block_errors?(errors, failure_policy: effective_failure_policy)
+        add_verification_error!(model, errors.map(&:error_code))
       else
         ::LinkSafety::Statistics.bump!(SiteSetting.link_safety_provider, fail_open: 1)
       end
     end
     private_class_method :validate_model_without_statistics_capture!
+
+    def self.handle_verification_errors!(model, errors, failure_policy:)
+      if ::LinkSafety::VerificationPolicy.block_errors?(errors, failure_policy: failure_policy)
+        add_verification_error!(model, errors)
+      else
+        ::LinkSafety::Statistics.bump!(SiteSetting.link_safety_provider, fail_open: 1)
+      end
+    end
+    private_class_method :handle_verification_errors!
+
+    def self.add_verification_error!(model, error_codes)
+      configuration = Array(error_codes).any? { |code| ::LinkSafety::VerificationPolicy.configuration_error?(code) }
+      message = configuration ? "link_safety.errors.configuration" : "link_safety.errors.unavailable"
+      model.errors.add(:base, I18n.t(message))
+    end
+    private_class_method :add_verification_error!
   end
 end

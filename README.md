@@ -50,15 +50,16 @@ Internal Discourse links are skipped. Only HTTP(S) navigation targets are reputa
 
 Default: `fail_open`.
 
-When a provider cannot produce a verdict, the content can still be saved. In enforce mode, external onebox processing for a URL with a current error verdict is suppressed and a retry job is queued. `fail_closed` is available for environments that prefer availability of the reputation service to be mandatory for uncached links.
+Transient provider availability failures can follow the configured `fail_open` policy. Security-control integrity failures such as canonicalization failures, malformed provider responses, exhausted validation budgets, or provider authentication/request-contract failures are rejected in Enforce mode even when transient provider outages are configured fail-open. `fail_closed` remains available for environments that require every uncached external link to receive a provider verdict.
 
 ## Privacy
 
 - Safe Browsing v5 mode sends 4-byte SHA-256 hash prefixes rather than the full URL.
-- Web Risk Lookup sends the full checked URL to Google.
+- Web Risk Lookup sends the full checked URL to Google. Private-message and direct-chat URLs are therefore not sent to Web Risk unless `link_safety_web_risk_private_surfaces` is explicitly enabled.
 - URLhaus receives the full URL and is disabled for private surfaces by default.
+- Full-URL providers do not receive loopback, private, link-local, reserved, or intranet destinations unless `link_safety_full_url_providers_allow_private_networks` is explicitly enabled.
 - Plugin cache/detection/statistics tables do not store full URLs; they store SHA-256 fingerprints and normalized hostnames.
-- API/Auth keys are secret server-side site settings.
+- Google API keys are sent in the `X-Goog-Api-Key` request header instead of the request URL, and all API/Auth keys remain secret server-side site settings.
 
 ## User Notes
 

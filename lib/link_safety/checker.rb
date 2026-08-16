@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module ::LinkSafety
   class Checker
     def self.check_many(urls, surface:, force: false, bypass_circuit: false)
@@ -14,15 +16,20 @@ module ::LinkSafety
     end
 
     def check_many(urls)
-      canonical = urls.filter_map { |url| ::LinkSafety::Canonicalizer.call(url) }
+      outcomes = Array(urls).compact.uniq.map { |url| [url, ::LinkSafety::Canonicalizer.analyze(url)] }
+      results = outcomes.filter_map do |url, outcome|
+        unverified_result(url, outcome.error_code) if outcome.error?
+      end
+      canonical = outcomes.filter_map { |_url, outcome| outcome.item if outcome.ok? }
       canonical.reject! { |item| ::LinkSafety::TrustedDomains.local_host?(item.host) }
       canonical = canonical.uniq(&:fingerprint)
-      return [] if canonical.empty?
 
-      ::LinkSafety::Statistics.bump!(@provider_name, checks: canonical.length)
-      results = []
+      check_count = canonical.length + results.length
+      ::LinkSafety::Statistics.bump!(@provider_name, checks: check_count) if check_count.positive?
+      ::LinkSafety::Statistics.bump!(@provider_name, errors: results.length) if results.any?
+      return results if canonical.empty?
+
       unresolved = []
-
       canonical.each do |item|
         if ::LinkSafety::TrustedDomains.trusted?(item.host)
           ::LinkSafety::Statistics.bump!(@provider_name, trusted_skips: 1)
@@ -43,16 +50,19 @@ module ::LinkSafety
 
       return results if unresolved.empty?
 
+      unresolved = apply_primary_privacy_policy(unresolved, results)
+      return results if unresolved.empty?
+
       if !@bypass_circuit && ::LinkSafety::CircuitBreaker.open?(@provider_name)
         unresolved.each do |item|
-          results << persist_response(item, Providers::Base::Response.new(status: "error", threat_types: [], expires_at: Time.zone.now + 1.minute, error_code: "circuit_open", latency_ms: nil, provider_calls: 0))
+          results << persist_response(item, error_response("circuit_open"))
         end
         return results
       end
 
       provider_results = provider.check_many(unresolved)
       unresolved.each do |item|
-        response = provider_results[item.fingerprint] || Providers::Base::Response.new(status: "error", threat_types: [], expires_at: Time.zone.now + 1.minute, error_code: "missing_provider_result", latency_ms: nil, provider_calls: 0)
+        response = provider_results[item.fingerprint] || error_response("missing_provider_result")
         result = persist_response(item, response)
         result = apply_urlhaus(item, result)
         results << result
@@ -71,11 +81,30 @@ module ::LinkSafety
       end
     end
 
+    def apply_primary_privacy_policy(items, results)
+      return items unless @provider_name == "web_risk_lookup"
+
+      items.select do |item|
+        allowed, error_code = ::LinkSafety::NetworkPolicy.web_risk_allowed?(item, surface: @surface)
+        if !allowed
+          ::LinkSafety::Statistics.bump!(@provider_name, errors: 1)
+          results << build_result(
+            item,
+            status: "error",
+            threats: [],
+            expires_at: Time.zone.now + 1.minute,
+            error_code: error_code,
+            source: "privacy_policy",
+          )
+        end
+        allowed
+      end
+    end
+
     def apply_urlhaus(item, result)
       return result unless SiteSetting.link_safety_urlhaus_enabled
       return result if result.threat? || result.error?
-      private_surface = %i[private_message chat_dm].include?(@surface)
-      return result if private_surface && !SiteSetting.link_safety_urlhaus_private_surfaces
+      return result unless ::LinkSafety::NetworkPolicy.urlhaus_allowed?(item, surface: @surface)
 
       threat = ::LinkSafety::Providers::Urlhaus.new.check(item)
       return result if threat.blank?
@@ -123,6 +152,41 @@ module ::LinkSafety
         expires_at: expires_at,
         error_code: error_code,
         source: source,
+      )
+    end
+
+    def unverified_result(url, error_code)
+      ::LinkSafety::Result.new(
+        url: url.to_s,
+        canonical_url: nil,
+        fingerprint: Digest::SHA256.hexdigest("unverified:#{url}"),
+        host: best_effort_host(url),
+        status: "error",
+        threat_types: [],
+        provider: @provider_name,
+        checked_at: Time.zone.now,
+        expires_at: Time.zone.now + 1.minute,
+        error_code: error_code.to_s,
+        source: "canonicalizer",
+      )
+    end
+
+    def best_effort_host(url)
+      value = url.to_s
+      value = "http://#{value}" unless value.match?(%r{\A[a-z][a-z0-9+.-]*://}i)
+      Addressable::URI.parse(value).host.to_s.downcase.presence || "unavailable"
+    rescue StandardError
+      "unavailable"
+    end
+
+    def error_response(code)
+      Providers::Base::Response.new(
+        status: "error",
+        threat_types: [],
+        expires_at: Time.zone.now + 1.minute,
+        error_code: code.to_s,
+        latency_ms: nil,
+        provider_calls: 0,
       )
     end
   end

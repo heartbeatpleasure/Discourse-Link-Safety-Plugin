@@ -105,6 +105,14 @@ plugins:
     max: 1440
     client: false
 
+  link_safety_web_risk_private_surfaces:
+    default: false
+    client: false
+
+  link_safety_full_url_providers_allow_private_networks:
+    default: false
+    client: false
+
   link_safety_urlhaus_enabled:
     default: false
     client: false
