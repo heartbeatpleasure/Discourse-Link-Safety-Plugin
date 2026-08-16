@@ -1,0 +1,183 @@
+.link-safety-admin {
+  --ls-surface: var(--secondary);
+  --ls-surface-alt: var(--primary-very-low);
+  --ls-border: var(--primary-low);
+  --ls-muted: var(--primary-medium);
+  --ls-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.link-safety-admin h1,
+.link-safety-admin h2,
+.link-safety-admin h3,
+.link-safety-admin p {
+  margin: 0;
+}
+
+.ls-admin__hero,
+.ls-admin__card,
+.ls-admin__metrics > div,
+.ls-admin__table-wrap {
+  border: 1px solid var(--ls-border);
+  background: var(--ls-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
+}
+
+.ls-admin__hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.35rem;
+  border-radius: var(--ls-radius);
+}
+
+.ls-admin__hero > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+  max-width: 780px;
+}
+
+.ls-admin__hero p,
+.ls-admin__card p,
+.ls-admin__metrics span {
+  color: var(--ls-muted);
+}
+
+.link-safety-admin > h2 {
+  padding: 0 0.25rem;
+}
+
+.ls-admin__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex: 0 0 auto;
+}
+
+.ls-admin__actions select {
+  min-height: 2.35rem;
+}
+
+.ls-admin__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.ls-admin__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-height: 150px;
+  padding: 1rem 1.1rem;
+  border-radius: var(--ls-radius);
+  color: var(--primary);
+  text-decoration: none;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.12s ease;
+}
+
+.ls-admin__card:first-child {
+  border-color: var(--tertiary-low);
+  background: linear-gradient(
+    180deg,
+    var(--secondary) 0%,
+    var(--tertiary-very-low) 100%
+  );
+}
+
+.ls-admin__card:hover,
+.ls-admin__card:focus {
+  border-color: var(--tertiary-medium);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 6%);
+  color: var(--primary);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.ls-admin__card h3 {
+  color: var(--primary);
+  font-size: var(--font-up-1);
+  line-height: 1.15;
+}
+
+.ls-admin__card p {
+  line-height: 1.4;
+}
+
+.ls-admin__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.85rem;
+}
+
+.ls-admin__metrics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 88px;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+}
+
+.ls-admin__metrics span {
+  font-size: var(--font-down-1);
+  line-height: 1.25;
+}
+
+.ls-admin__metrics strong {
+  color: var(--primary);
+  font-size: var(--font-up-1);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.ls-admin__error {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--danger-low-mid);
+  border-radius: 14px;
+  background: var(--danger-low);
+  color: var(--danger);
+}
+
+.ls-admin__table-wrap {
+  overflow: auto;
+  min-width: 0;
+  border-radius: 14px;
+}
+
+.ls-admin__table-wrap table {
+  width: 100%;
+  margin: 0;
+}
+
+.ls-admin__table-wrap th,
+.ls-admin__table-wrap td {
+  vertical-align: top;
+}
+
+@media (max-width: 700px) {
+  .ls-admin__hero {
+    flex-direction: column;
+  }
+
+  .ls-admin__actions {
+    justify-content: flex-start;
+  }
+
+  .ls-admin__grid,
+  .ls-admin__metrics {
+    grid-template-columns: 1fr;
+  }
+}

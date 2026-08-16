@@ -1,18 +1,18 @@
-.link-safety-admin { display:flex; flex-direction:column; gap:1rem; }
-.ls-admin__hero { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; padding:1.1rem 1.2rem; border:1px solid var(--primary-low); border-radius:16px; background:var(--secondary); }
-.ls-admin__hero h1,.ls-admin__hero p,.ls-admin__card h3,.ls-admin__card p { margin:0; }
-.ls-admin__hero p,.ls-admin__card p,.ls-admin__metrics span { color:var(--primary-medium); }
-.ls-admin__actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
-.ls-admin__grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:1rem; }
-.ls-admin__card { display:flex; flex-direction:column; gap:.5rem; min-height:125px; padding:1rem; border:1px solid var(--primary-low); border-radius:16px; background:var(--secondary); color:var(--primary); text-decoration:none; }
-.ls-admin__card:hover { border-color:var(--tertiary-medium); text-decoration:none; color:var(--primary); }
-.ls-admin__metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.75rem; }
-.ls-admin__metrics > div { display:flex; flex-direction:column; gap:.25rem; padding:.85rem; border:1px solid var(--primary-low); border-radius:14px; background:var(--primary-very-low); }
-.ls-admin__metrics strong { font-size:var(--font-up-1); overflow-wrap:anywhere; }
-.ls-admin__error { border:1px solid var(--danger-low-mid); background:var(--danger-low); color:var(--danger); border-radius:12px; padding:.8rem; }
-.ls-admin__table-wrap { overflow:auto; border:1px solid var(--primary-low); border-radius:14px; background:var(--secondary); }
-.ls-admin__table-wrap table { margin:0; width:100%; }
-a.link-safety-blocked-link { color:var(--danger); text-decoration:line-through; cursor:not-allowed; }
-.link-safety-warning { display:inline-block; margin-left:.35em; color:var(--danger); font-size:var(--font-down-1); font-weight:600; }
-.link-safety-warning a { color:inherit; text-decoration:underline; }
-@media (max-width:700px){ .ls-admin__hero{flex-direction:column}.ls-admin__grid,.ls-admin__metrics{grid-template-columns:1fr} }
+a.link-safety-blocked-link {
+  color: var(--danger);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+.link-safety-warning {
+  display: inline-block;
+  margin-left: 0.35em;
+  color: var(--danger);
+  font-size: var(--font-down-1);
+  font-weight: 600;
+}
+
+.link-safety-warning a {
+  color: inherit;
+  text-decoration: underline;
+}
