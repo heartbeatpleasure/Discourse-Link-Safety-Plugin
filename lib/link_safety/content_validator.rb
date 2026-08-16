@@ -22,13 +22,7 @@ module ::LinkSafety
       if threats.any?
         if SiteSetting.link_safety_mode == "enforce"
           threats.each { |result| ::LinkSafety::DetectionRecorder.record!(result: result, surface: surface, user: user, action: :blocked_before_save) }
-          message_key =
-            if threats.any? { |result| result.provider.to_s == "safe_browsing_v5" }
-              "link_safety.errors.malicious_link_google"
-            else
-              "link_safety.errors.malicious_link"
-            end
-          model.errors.add(:base, I18n.t(message_key))
+          model.errors.add(:base, I18n.t("link_safety.errors.malicious_link"))
           return
         else
           threats.each { |result| ::LinkSafety::DetectionRecorder.record!(result: result, surface: surface, user: user, action: :monitor_only) }

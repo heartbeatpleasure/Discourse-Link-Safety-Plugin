@@ -26,6 +26,6 @@ RSpec.describe LinkSafety::Renderer do
     expect(anchor["class"].to_s.split).to include("link-safety-blocked-link")
     warning = doc.at_css(".link-safety-warning")
     expect(warning).to be_present
-    expect(warning.at_css('a[href="https://developers.google.com/safe-browsing/v4/advisory"]')).to be_present
+    expect(warning.at_css("a")).to be_nil
   end
 end

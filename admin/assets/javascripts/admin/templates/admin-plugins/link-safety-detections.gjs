@@ -122,7 +122,7 @@ export default RouteTemplate(
               <tbody>
                 {{#each @controller.data.detections as |row|}}
                   <tr>
-                    <td>{{row.detected_at}}</td>
+                    <td>{{row.detected_at_display}}</td>
                     <td>{{row.host}}</td>
                     <td>{{row.threat_types}}</td>
                     <td>{{row.surface}}</td>

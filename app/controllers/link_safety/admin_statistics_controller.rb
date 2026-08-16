@@ -24,7 +24,7 @@ module ::LinkSafety
             blocked: row.blocked,
             monitored: row.monitored,
             fail_open: row.fail_open,
-            errors: row.errors,
+            errors: row.error_count,
             average_latency_ms: row.latency_samples.positive? ? (row.latency_total_ms.to_f / row.latency_samples).round : nil,
           }
         end,

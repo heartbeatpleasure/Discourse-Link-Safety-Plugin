@@ -61,6 +61,8 @@ en:
         cache_hits: "Cache hits"
         trusted_skips: "Trusted skips"
         threat_count: "Threats"
+        blocked: "Blocked"
+        monitored: "Monitor-only"
         errors: "Errors"
         fail_open: "Fail-open"
         no_detections: "No detections for this period."

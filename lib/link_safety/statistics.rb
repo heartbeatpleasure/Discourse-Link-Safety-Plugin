@@ -2,11 +2,27 @@
 
 module ::LinkSafety
   class Statistics
-    ALLOWED_COUNTERS = %i[checks provider_calls cache_hits trusted_skips threats blocked monitored fail_open errors latency_total_ms latency_samples].freeze
+    ALLOWED_COUNTERS = %i[
+      checks
+      provider_calls
+      cache_hits
+      trusted_skips
+      threats
+      blocked
+      monitored
+      fail_open
+      errors
+      latency_total_ms
+      latency_samples
+    ].freeze
 
     def self.bump!(provider, **counters)
       counters = counters.slice(*ALLOWED_COUNTERS).transform_values(&:to_i).reject { |_k, v| v.zero? }
       return if counters.empty?
+
+      if counters.key?(:errors)
+        counters[:error_count] = counters.delete(:errors)
+      end
 
       row = begin
         ::LinkSafety::DailyStat.find_or_create_by!(stat_date: Date.current, provider: provider.to_s)

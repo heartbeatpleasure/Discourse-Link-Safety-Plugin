@@ -59,7 +59,7 @@ export default RouteTemplate(
         display: inline-flex;
         align-items: center;
         gap: .75rem;
-        margin: 0;
+        margin: 5px 0 0;
       }
       .ls-stats__period > span {
         color: var(--ls-muted);
@@ -152,6 +152,8 @@ export default RouteTemplate(
                   <th>{{i18n "admin.link_safety.cache_hits"}}</th>
                   <th>{{i18n "admin.link_safety.trusted_skips"}}</th>
                   <th>{{i18n "admin.link_safety.threat_count"}}</th>
+                  <th>{{i18n "admin.link_safety.blocked"}}</th>
+                  <th>{{i18n "admin.link_safety.monitored"}}</th>
                   <th>{{i18n "admin.link_safety.errors"}}</th>
                   <th>{{i18n "admin.link_safety.fail_open"}}</th>
                 </tr>
@@ -166,6 +168,8 @@ export default RouteTemplate(
                     <td>{{row.cache_hits}}</td>
                     <td>{{row.trusted_skips}}</td>
                     <td>{{row.threats}}</td>
+                    <td>{{row.blocked}}</td>
+                    <td>{{row.monitored}}</td>
                     <td>{{row.errors}}</td>
                     <td>{{row.fail_open}}</td>
                   </tr>

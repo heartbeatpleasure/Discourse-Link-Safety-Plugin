@@ -47,7 +47,7 @@ RSpec.describe LinkSafety::ContentValidator do
 
     described_class.validate_model!(model: model, urls: ["https://example.com/"], surface: :public_post, user: user)
 
-    expect(model.errors[:base]).to include(I18n.t("link_safety.errors.malicious_link_google"))
+    expect(model.errors[:base]).to include(I18n.t("link_safety.errors.malicious_link"))
   end
 
   it "fails open on provider errors by default" do
