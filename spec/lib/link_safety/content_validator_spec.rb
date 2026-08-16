@@ -12,6 +12,7 @@ RSpec.describe LinkSafety::ContentValidator do
     SiteSetting.link_safety_max_external_urls_per_submission = 50
     SiteSetting.link_safety_provider = "safe_browsing_v5"
     allow(LinkSafety::DetectionRecorder).to receive(:record!)
+    allow(LinkSafety::DetectionRecorder).to receive(:queue_blocked!)
     allow(LinkSafety::Statistics).to receive(:bump!)
   end
 
@@ -48,6 +49,12 @@ RSpec.describe LinkSafety::ContentValidator do
     described_class.validate_model!(model: model, urls: ["https://example.com/"], surface: :public_post, user: user)
 
     expect(model.errors[:base]).to include(I18n.t("link_safety.errors.malicious_link"))
+    expect(LinkSafety::DetectionRecorder).to have_received(:queue_blocked!).with(
+      hash_including(model: model, surface: :public_post, user: user)
+    ).once
+    expect(LinkSafety::DetectionRecorder).not_to have_received(:record!).with(
+      hash_including(action: :blocked_before_save)
+    )
   end
 
   it "fails open on provider errors by default" do

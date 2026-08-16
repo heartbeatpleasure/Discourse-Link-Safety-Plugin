@@ -167,11 +167,11 @@ export default RouteTemplate(
           <div class="ls-health__grid">
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.last_success"}}</div>
-              <div class="ls-health__value">{{if @controller.data.last_success_at @controller.data.last_success_at "-"}}</div>
+              <div class="ls-health__value">{{@controller.data.last_success_at_display}}</div>
             </div>
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.last_failure"}}</div>
-              <div class="ls-health__value">{{if @controller.data.last_failure_at @controller.data.last_failure_at "-"}}</div>
+              <div class="ls-health__value">{{@controller.data.last_failure_at_display}}</div>
             </div>
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.failure_code"}}</div>
@@ -187,7 +187,7 @@ export default RouteTemplate(
             </div>
             <div class="ls-health__item">
               <div class="ls-health__label">{{i18n "admin.link_safety.circuit_open_until"}}</div>
-              <div class="ls-health__value">{{if @controller.data.circuit_open_until @controller.data.circuit_open_until "-"}}</div>
+              <div class="ls-health__value">{{@controller.data.circuit_open_until_display}}</div>
             </div>
           </div>
         </section>
