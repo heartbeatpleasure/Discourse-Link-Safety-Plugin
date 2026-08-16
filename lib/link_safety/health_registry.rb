@@ -14,6 +14,7 @@ module ::LinkSafety
       onebox_gate
       pending_scheduler
       provider_request
+      lookup_budget
     ].freeze
 
     def self.success!(provider:, latency_ms:)

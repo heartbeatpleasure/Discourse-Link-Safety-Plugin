@@ -2,6 +2,7 @@
 
 module ::LinkSafety
   class ContentValidator
+    MAX_RAW_URL_CANDIDATES = 200
     def self.validate_model!(model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil)
       ::LinkSafety::DetectionRecorder.clear_queued!(model)
 
@@ -50,6 +51,15 @@ module ::LinkSafety
       urls = Array(urls).compact.uniq
       return if urls.empty?
 
+      # Bound work before canonicalization. The configured external-link limit
+      # applies after trusted/local filtering, while this absolute ceiling stops
+      # a malformed or adversarial submission from forcing unbounded URL parser
+      # work before that filtering can happen.
+      if urls.length > MAX_RAW_URL_CANDIDATES
+        model.errors.add(:base, I18n.t("link_safety.errors.too_many_links"))
+        return
+      end
+
       outcomes = urls.map { |url| ::LinkSafety::Canonicalizer.analyze(url) }
       canonical_errors = outcomes.select(&:error?).map(&:error_code)
       if canonical_errors.any? && ::LinkSafety::VerificationPolicy.block_errors?(canonical_errors, failure_policy: effective_failure_policy)
@@ -66,7 +76,7 @@ module ::LinkSafety
         return
       end
 
-      results = ::LinkSafety::Checker.check_many(urls, surface: surface)
+      results = ::LinkSafety::Checker.check_many(urls, surface: surface, user: user)
       threats = results.select(&:threat?)
       errors = results.select(&:error?)
 
@@ -80,7 +90,7 @@ module ::LinkSafety
               user: user,
             )
           end
-          model.errors.add(:base, I18n.t("link_safety.errors.malicious_link"))
+          model.errors.add(:base, ::LinkSafety::WarningPresenter.validation_message(threats))
           return
         else
           threats.each do |result|

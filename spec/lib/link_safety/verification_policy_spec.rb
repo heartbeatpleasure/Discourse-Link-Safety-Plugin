@@ -22,4 +22,11 @@ RSpec.describe LinkSafety::VerificationPolicy do
     expect(described_class.block_errors?(["http_404"], failure_policy: :fail_open)).to eq(true)
     expect(described_class.block_errors?(["http_302"], failure_policy: :fail_open)).to eq(true)
   end
+  it "treats local lookup budget exhaustion and stale provider data as hard failures in Enforce" do
+    SiteSetting.link_safety_mode = "enforce"
+    %w[user_lookup_rate_limited global_lookup_rate_limited lookup_budget_unavailable stale_provider_response unsupported_threat_type].each do |code|
+      expect(described_class.block_errors?([code], failure_policy: :fail_open)).to eq(true)
+    end
+  end
+
 end

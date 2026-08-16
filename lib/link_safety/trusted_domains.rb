@@ -1,16 +1,38 @@
 # frozen_string_literal: true
 
+require "mini_suffix"
+
 module ::LinkSafety
   class TrustedDomains
     def self.trusted?(host)
       normalized = normalize(host)
-      return true if normalized.blank? || local_host?(normalized)
+      return false if normalized.blank?
+      return true if local_host?(normalized)
 
       domains.any? do |domain|
         normalized == domain ||
-          (SiteSetting.link_safety_trusted_domains_include_subdomains && normalized.end_with?(".#{domain}"))
+          (
+            SiteSetting.link_safety_trusted_domains_include_subdomains &&
+              subdomain_trust_root?(domain) &&
+              normalized.end_with?(".#{domain}")
+          )
       end
     end
+
+
+    def self.subdomain_trust_root?(domain)
+      value = domain.to_s
+      return false if value.blank?
+
+      # A setting such as `com` or `co.uk` must never turn into a wildcard
+      # reputation-check bypass for an entire public suffix. MiniSuffix returns
+      # a registrable domain only when the value contains an actual registrable
+      # label. Exact matching remains available for unusual/internal hosts.
+      MiniSuffix.domain(value).present?
+    rescue StandardError
+      false
+    end
+    private_class_method :subdomain_trust_root?
 
     def self.domains
       SiteSetting.link_safety_trusted_domains.to_s.split("|").filter_map do |value|

@@ -48,7 +48,7 @@ RSpec.describe LinkSafety::ContentValidator do
 
     described_class.validate_model!(model: model, urls: ["https://example.com/"], surface: :public_post, user: user)
 
-    expect(model.errors[:base]).to include(I18n.t("link_safety.errors.malicious_link"))
+    expect(model.errors[:base].join(" ")).to include("Advisory provided by Google")
     expect(LinkSafety::DetectionRecorder).to have_received(:queue_blocked!).with(
       hash_including(model: model, surface: :public_post, user: user)
     ).once
@@ -124,6 +124,15 @@ RSpec.describe LinkSafety::ContentValidator do
     described_class.validate_model!(model: model, urls: ["https://example.com/"], surface: :public_post, user: user)
 
     expect(model.errors).to be_empty
+  end
+
+  it "rejects an excessive raw URL candidate set before invoking the checker" do
+    urls = 201.times.map { |i| "https://example#{i}.com/" }
+    expect(LinkSafety::Checker).not_to receive(:check_many)
+
+    described_class.validate_model!(model: model, urls: urls, surface: :public_post, user: user)
+
+    expect(model.errors[:base]).to include(I18n.t("link_safety.errors.too_many_links"))
   end
 
 end

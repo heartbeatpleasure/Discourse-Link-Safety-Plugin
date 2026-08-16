@@ -171,6 +171,7 @@ RSpec.describe LinkSafety::Providers::GoogleSafeBrowsingV5 do
     before do
       SiteSetting.link_safety_google_api_key = "test-key"
       SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged = true
+      SiteSetting.link_safety_google_user_protection_notice_acknowledged = true
       allow(LinkSafety::Statistics).to receive(:bump!)
       allow(LinkSafety::CircuitBreaker).to receive(:record_success)
       allow(LinkSafety::CircuitBreaker).to receive(:record_failure)
@@ -221,6 +222,17 @@ RSpec.describe LinkSafety::Providers::GoogleSafeBrowsingV5 do
       expect(result.threat_types).to eq([])
       expect(result.error_code).to be_nil
       expect(result.expires_at).to be_within(2.seconds).of(300.seconds.from_now)
+    end
+
+    it "caps anomalously long clean cache durations to 24 hours" do
+      item = LinkSafety::Canonicalizer.call("https://example.com/")
+      body = protobuf_response(cache_seconds: 7.days.to_i)
+      allow(provider).to receive(:request).and_return([http_ok(body), 20])
+
+      result = provider.check_many([item]).fetch(item.fingerprint)
+
+      expect(result.status).to eq("clean")
+      expect(result.expires_at).to be <= 24.hours.from_now + 2.seconds
     end
 
     it "classifies a matching malware full hash as a threat" do

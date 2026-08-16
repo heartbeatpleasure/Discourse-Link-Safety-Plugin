@@ -19,7 +19,25 @@ module ::LinkSafety
     rescue => e
       Rails.logger.warn("[LinkSafety] onebox gate failed class=#{e.class.name}")
       ::LinkSafety::HealthRegistry.control_failure!(component: :onebox_gate, code: e.class.name)
+      # Prevent an Enforce-mode control failure from falling back to a remote
+      # onebox fetch. Only onebox-loading classes on external HTTP(S) targets
+      # are stripped; ordinary/internal links are left alone.
+      fail_closed!(doc)
+    end
+
+    def self.fail_closed!(doc)
+      doc.css("a.onebox[href], a.inline-onebox-loading[href]").each do |anchor|
+        href = anchor["href"].to_s.strip
+        next unless href.match?(%r{\Ahttps?://}i) || href.start_with?("//")
+
+        classes = anchor["class"].to_s.split
+        classes -= %w[onebox inline-onebox-loading]
+        anchor["class"] = classes.join(" ")
+      end
+      doc
+    rescue StandardError
       doc
     end
+    private_class_method :fail_closed!
   end
 end

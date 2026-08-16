@@ -28,7 +28,9 @@ module ::LinkSafety
       ParsedPayload = Data.define(:full_hashes, :cache_duration)
 
       def configured?
-        SiteSetting.link_safety_google_api_key.present? && SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged
+        SiteSetting.link_safety_google_api_key.present? &&
+          SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged &&
+          SiteSetting.link_safety_google_user_protection_notice_acknowledged
       end
 
       def check_many(canonical_urls, deadline: nil)
@@ -144,7 +146,17 @@ module ::LinkSafety
         items.to_h do |item|
           threats = matches[item.fingerprint].uniq
           status = threats.any? ? "threat" : "clean"
-          effective_expiry = threats.any? ? [expires_at, 30.minutes.from_now].min : expires_at
+          effective_expiry =
+            if threats.any?
+              # Safe Browsing ToS requires fresh Google data within 30 minutes
+              # before warning/blocking on a Google-list verdict.
+              [expires_at, 30.minutes.from_now].min
+            else
+              # The v5 protocol allows clients to extend negative caching only
+              # up to 24 hours. Capping even a server-supplied anomalous value
+              # avoids a stale clean verdict becoming a long-lived bypass.
+              [expires_at, 24.hours.from_now].min
+            end
           [item.fingerprint, build_response(status, threats, effective_expiry, latency)]
         end
       rescue ProtobufDecodeError, ArgumentError, RangeError, TypeError => e
@@ -386,7 +398,14 @@ module ::LinkSafety
       end
 
       def configuration_errors(items)
-        code = SiteSetting.link_safety_google_api_key.blank? ? :missing_api_key : :safe_browsing_usage_not_acknowledged
+        code =
+          if SiteSetting.link_safety_google_api_key.blank?
+            :missing_api_key
+          elsif !SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged
+            :safe_browsing_usage_not_acknowledged
+          else
+            :google_user_protection_notice_not_acknowledged
+          end
         ::LinkSafety::HealthRegistry.failure!(provider: PROVIDER, code: code)
         items.to_h do |item|
           [item.fingerprint, Providers::Base::Response.new(status: "error", threat_types: [], expires_at: Time.zone.now + 5.minutes, error_code: code.to_s, latency_ms: nil, provider_calls: 0)]

@@ -29,6 +29,7 @@ module ::LinkSafety
 
     def self.provider_configured?(provider)
       return false if SiteSetting.link_safety_google_api_key.blank?
+      return false unless SiteSetting.link_safety_google_user_protection_notice_acknowledged
       return SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged if provider == "safe_browsing_v5"
       true
     end

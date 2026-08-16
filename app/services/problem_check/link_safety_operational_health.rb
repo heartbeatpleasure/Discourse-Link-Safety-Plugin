@@ -16,6 +16,8 @@ class ProblemCheck::LinkSafetyOperationalHealth < ProblemCheck
       issues << I18n.t("link_safety.admin_alerts.missing_api_key")
     elsif provider == "safe_browsing_v5" && !SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged
       issues << I18n.t("link_safety.admin_alerts.safe_browsing_usage_not_acknowledged")
+    elsif !SiteSetting.link_safety_google_user_protection_notice_acknowledged
+      issues << I18n.t("link_safety.admin_alerts.google_user_protection_notice_not_acknowledged")
     end
 
     if provider == "web_risk_lookup" &&

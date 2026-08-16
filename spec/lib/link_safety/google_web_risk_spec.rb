@@ -5,6 +5,7 @@ RSpec.describe LinkSafety::Providers::GoogleWebRisk do
 
   before do
     SiteSetting.link_safety_google_api_key = "test-key"
+    SiteSetting.link_safety_google_user_protection_notice_acknowledged = true
     SiteSetting.link_safety_validation_budget_ms = 3000
     allow(LinkSafety::Statistics).to receive(:bump!)
     allow(LinkSafety::CircuitBreaker).to receive(:record_success)
@@ -55,4 +56,46 @@ RSpec.describe LinkSafety::Providers::GoogleWebRisk do
     provider.check_many([item])
     expect(LinkSafety::CircuitBreaker).to have_received(:record_failure).with("web_risk_lookup")
   end
+  it "does not invent a negative-cache lifetime for an empty Lookup response" do
+    item = LinkSafety::Canonicalizer.call("https://example.com/")
+    allow(provider).to receive(:request).and_return([http_ok, 20])
+
+    result = provider.check_many([item]).fetch(item.fingerprint)
+    expect(result.status).to eq("clean")
+    expect(result.expires_at).to be <= Time.zone.now + 1.second
+  end
+
+  it "rejects a threat response without expireTime instead of inventing a local warning lifetime" do
+    item = LinkSafety::Canonicalizer.call("https://example.com/")
+    allow(provider).to receive(:request).and_return(
+      [http_ok("threat" => { "threatTypes" => ["MALWARE"] }), 20],
+    )
+
+    result = provider.check_many([item]).fetch(item.fingerprint)
+    expect(result.status).to eq("error")
+    expect(result.error_code).to eq("malformed_response")
+  end
+
+  it "rejects an expired threat response instead of enforcing stale data" do
+    item = LinkSafety::Canonicalizer.call("https://example.com/")
+    allow(provider).to receive(:request).and_return(
+      [http_ok("threat" => { "threatTypes" => ["MALWARE"], "expireTime" => 1.minute.ago.iso8601 }), 20],
+    )
+
+    result = provider.check_many([item]).fetch(item.fingerprint)
+    expect(result.status).to eq("error")
+    expect(result.error_code).to eq("stale_provider_response")
+  end
+
+  it "fails closed at the provider boundary on an unknown future threat type" do
+    item = LinkSafety::Canonicalizer.call("https://example.com/")
+    allow(provider).to receive(:request).and_return(
+      [http_ok("threat" => { "threatTypes" => ["FUTURE_THREAT"], "expireTime" => 5.minutes.from_now.iso8601 }), 20],
+    )
+
+    result = provider.check_many([item]).fetch(item.fingerprint)
+    expect(result.status).to eq("error")
+    expect(result.error_code).to eq("unsupported_threat_type")
+  end
+
 end

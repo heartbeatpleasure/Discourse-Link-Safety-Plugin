@@ -23,6 +23,10 @@ RSpec.describe LinkSafety::NetworkPolicy do
       ::1
       [fe80::1]
       [fc00::1]
+      service.test
+      hidden.onion
+      reserved.invalid
+      host.alt
     ].each do |host|
       it "treats #{host} as non-public" do
         expect(described_class.private_or_special_host?(host)).to eq(true)
@@ -56,4 +60,11 @@ RSpec.describe LinkSafety::NetworkPolicy do
       expect(code).to be_nil
     end
   end
+
+  it "treats common internal and reverse-DNS namespaces as non-public" do
+    expect(described_class.private_or_special_host?("metadata.google.internal")).to eq(true)
+    expect(described_class.private_or_special_host?("host.localdomain")).to eq(true)
+    expect(described_class.private_or_special_host?("1.0.0.127.in-addr.arpa")).to eq(true)
+  end
+
 end

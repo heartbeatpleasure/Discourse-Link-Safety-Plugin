@@ -4,15 +4,20 @@ require "digest"
 
 module ::LinkSafety
   class Checker
-    def self.check_many(urls, surface:, force: false, bypass_circuit: false)
-      new(surface: surface, force: force, bypass_circuit: bypass_circuit).check_many(urls)
+    def self.check_many(urls, surface:, force: false, bypass_circuit: false, bypass_lookup_budget: false, user: nil)
+      new(
+        surface: surface, force: force, bypass_circuit: bypass_circuit,
+        bypass_lookup_budget: bypass_lookup_budget, user: user,
+      ).check_many(urls)
     end
 
-    def initialize(surface:, force: false, bypass_circuit: false)
+    def initialize(surface:, force: false, bypass_circuit: false, bypass_lookup_budget: false, user: nil)
       @surface = surface.to_sym
       @force = force
       @bypass_circuit = bypass_circuit
+      @bypass_lookup_budget = bypass_lookup_budget
       @provider_name = SiteSetting.link_safety_provider.to_s
+      @user = user
     end
 
     def check_many(urls)
@@ -58,6 +63,24 @@ module ::LinkSafety
           results << persist_response(item, error_response("circuit_open"))
         end
         return results
+      end
+
+      unless @bypass_lookup_budget
+        lookup_budget = ::LinkSafety::LookupBudget.reserve(user: @user, units: unresolved.length)
+        unless lookup_budget.allowed?
+          ::LinkSafety::Statistics.bump!(@provider_name, errors: unresolved.length)
+          unresolved.each do |item|
+            results << build_result(
+              item,
+              status: "error",
+              threats: [],
+              expires_at: Time.zone.now + 1.minute,
+              error_code: lookup_budget.error_code,
+              source: "lookup_budget",
+            )
+          end
+          return results
+        end
       end
 
       primary_provider = provider
@@ -116,22 +139,30 @@ module ::LinkSafety
 
     def persist_response(item, response, source_override: nil, result_provider: nil)
       source_name = source_override || @provider_name
-      ::LinkSafety::CacheEntry.upsert(
-        {
-          provider: @provider_name,
-          source_provider: result_provider || @provider_name,
-          url_fingerprint: item.fingerprint,
-          host: item.host,
-          verdict: response.status,
-          threat_types: response.threat_types,
-          error_code: response.error_code,
-          checked_at: Time.zone.now,
-          expires_at: response.expires_at || 1.minute.from_now,
-          created_at: Time.zone.now,
-          updated_at: Time.zone.now,
-        },
-        unique_by: :idx_link_safety_cache_provider_url,
-      )
+      expiry = response.expires_at || 1.minute.from_now
+      now = Time.zone.now
+
+      # Some providers (notably Web Risk Lookup for an empty result) do not
+      # define a negative-cache lifetime. An already-expired response is a valid
+      # result for this request, but must not be inserted as reusable cache data.
+      if expiry > now
+        ::LinkSafety::CacheEntry.upsert(
+          {
+            provider: @provider_name,
+            source_provider: result_provider || @provider_name,
+            url_fingerprint: item.fingerprint,
+            host: item.host,
+            verdict: response.status,
+            threat_types: response.threat_types,
+            error_code: response.error_code,
+            checked_at: now,
+            expires_at: expiry,
+            created_at: now,
+            updated_at: now,
+          },
+          unique_by: :idx_link_safety_cache_provider_url,
+        )
+      end
       build_result(item, status: response.status, threats: response.threat_types, expires_at: response.expires_at, error_code: response.error_code, source: source_name, provider: result_provider || @provider_name)
     rescue => e
       Rails.logger.warn("[LinkSafety] cache write failed class=#{e.class.name}")

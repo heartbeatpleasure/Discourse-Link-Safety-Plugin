@@ -25,10 +25,11 @@ Add the plugin to the Discourse container configuration in the normal way and re
 2. Select the appropriate primary provider.
 3. Configure `link_safety_google_api_key`.
 4. If Safe Browsing is selected, enable `link_safety_safe_browsing_noncommercial_acknowledged` only when the deployment is actually eligible.
-5. Leave URLhaus disabled initially unless its supplemental check is required.
-6. Start with `link_safety_mode = monitor`.
-7. Enable `link_safety_enabled` and run the provider test from Admin > Plugins > Link Safety > Health.
-8. Verify clean and known-test URL behavior on staging before changing to `link_safety_mode = enforce`.
+5. Before using either Google provider, make Google's required user-protection notice visible to users (for example in the site's accepted Terms/Community Guidelines) and only then enable `link_safety_google_user_protection_notice_acknowledged`.
+6. Leave URLhaus disabled initially unless its supplemental check is required.
+7. Start with `link_safety_mode = monitor`.
+8. Enable `link_safety_enabled` and run the provider test from Admin > Plugins > Link Safety > Health.
+9. Verify clean and known-test URL behavior on staging before changing to `link_safety_mode = enforce`.
 
 ## Covered surfaces
 
@@ -66,6 +67,8 @@ Transient provider availability failures can follow the configured `fail_open` p
 - Provider responses are streamed into a bounded buffer and rejected once they exceed 512 KiB; a declared oversized `Content-Length` is rejected before body reads.
 - HTTPS provider connections verify certificates and require TLS 1.2 or newer when supported by the running Ruby/OpenSSL stack.
 - A single validation deadline is shared by primary and supplemental provider work for one check operation.
+- Uncached remote lookup work is protected by both a weighted per-user 10-minute budget and a global per-minute budget, independent of Discourse's normal posting rate limits. This limits API-cost abuse and resource exhaustion.
+- An absolute 200-candidate ceiling is enforced before canonicalization so malformed/high-volume URL submissions cannot force unbounded parsing work.
 - Pending retries re-check the current surface settings and current Monitor/Enforce mode before doing provider work.
 - The Health page exposes privacy-safe internal security-control failure counters that expire after one hour without another failure; no URLs, message content, API keys, or provider response bodies are included. Repeated/internal control failures also surface through the Discourse problem-check framework.
 - Cached verdicts retain the provider that actually supplied the verdict, including URLhaus supplemental detections.
@@ -96,10 +99,10 @@ Run the first rebuild with `link_safety_enabled = false`, then use this sequence
 2. Configure the primary provider and API key, keep `link_safety_mode = monitor`, enable `link_safety_enabled`, then run **Health > Run provider test**.
 3. Post a normal external link in a public topic, a private message, a public Chat channel, and a Chat direct message. Repeat with a bare URL and a URL that normally renders as a onebox. All should continue to work in monitor mode.
 4. Change a profile website/bio to contain a normal external link and confirm that it saves.
-5. On staging only, use Google's documented malware test URL `http://testsafebrowsing.appspot.com/s/malware.html`. In monitor mode the content should remain publishable while a detection is recorded.
+5. On staging only, use Google's documented malware test URL `http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/`. In monitor mode the content should remain publishable while a detection is recorded.
 6. Change to `link_safety_mode = enforce` and repeat the malware test URL in a public post, PM, Chat, Chat DM, and profile field. The create/edit should be rejected; existing content must remain unchanged when an edit is rejected.
 7. Add `example.com` to `link_safety_trusted_domains` and verify that a link to that exact host bypasses provider lookup. Keep `link_safety_trusted_domains_include_subdomains = false` unless subdomain trust is intentionally required.
-8. Temporarily use an invalid Google API key. With the default `fail_open`, a new post/chat link should still be accepted and the Health page should show provider failure/circuit state. Profile link changes should remain blocked by default because `link_safety_profile_fail_open = false`. Restore the valid key immediately after this test.
+8. Temporarily simulate a transient provider timeout on staging if you need to verify `fail_open`; authentication/configuration errors such as an invalid API key are intentionally treated as hard verification failures in Enforce mode. Profile link changes remain fail-closed by default. Restore normal provider operation immediately after the test.
 9. Verify that existing oneboxes, normal internal Discourse links, uploads, mentions, hashtags, code blocks containing URL text, and ordinary posting/chat behavior are unchanged.
 10. Review **Detections**, **Statistics**, and **Health**, then switch from monitor to enforce only after the staging results are correct.
 
@@ -113,9 +116,11 @@ The malware URL above is a provider-owned test fixture; do not replace it with a
 
 The plugin defaults to **disabled** and **monitor** mode. Configure and test the provider first, enable the plugin in monitor mode, then switch to enforce mode after verifying normal traffic.
 
-## Google Safe Browsing user protection notice
+## Google provider user protection and attribution
 
-Google Safe Browsing protection is not perfect. Risk information can contain false positives and false negatives: some risky sites may not be identified and some safe sites may be identified in error. User-visible Link Safety warnings are intentionally provider-independent. A Safe Browsing threat verdict is not enforced beyond the provider's valid cache lifetime, and enforcement data is capped to the freshness required by Google's terms.
+Before enabling the acknowledgement setting for either Google provider, the site operator must make a user-protection notice visible to users before they use Link Safety. The notice must explain that Google-based protection can produce both false positives and false negatives. Google suggests language equivalent to: Google works to provide accurate and up-to-date information about unsafe web resources, but cannot guarantee that its information is comprehensive and error-free; some risky sites may not be identified and some safe sites may be identified in error.
+
+When a warning is based on a Google verdict, Link Safety includes Google attribution and an advisory reference. URLhaus-only warnings deliberately do not include Google attribution. Safe Browsing threat verdicts are never enforced beyond 30 minutes without fresh Google data. Web Risk threat verdicts require and respect the provider's valid `expireTime`; missing, malformed, or expired positive-cache timestamps are treated as provider errors. Empty Web Risk Lookup responses are not negatively cached because Lookup does not define a negative-cache lifetime.
 
 ## Settings navigation
 

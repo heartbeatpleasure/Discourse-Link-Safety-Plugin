@@ -5,6 +5,7 @@ require "ipaddr"
 module ::LinkSafety
   class NetworkPolicy
     PRIVATE_SURFACES = %i[private_message chat_dm].freeze
+    SPECIAL_USE_SUFFIXES = %w[.localhost .local .localdomain .internal .home .lan .test .invalid .example .onion .alt .arpa].freeze
     NON_PUBLIC_NETWORKS = %w[
       0.0.0.0/8
       10.0.0.0/8
@@ -36,7 +37,7 @@ module ::LinkSafety
       value = host.to_s.downcase.gsub(/\A\[|\]\z/, "").sub(/\.$/, "")
       return true if value.blank?
       return true if value == "localhost" || !value.include?(".")
-      return true if value.end_with?(".localhost", ".local", ".internal", ".home", ".lan")
+      return true if SPECIAL_USE_SUFFIXES.any? { |suffix| value.end_with?(suffix) }
 
       ip = IPAddr.new(value)
       NON_PUBLIC_NETWORKS.any? { |network| network.include?(ip) }

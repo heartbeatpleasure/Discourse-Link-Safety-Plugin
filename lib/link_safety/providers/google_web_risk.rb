@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "time"
+
 module ::LinkSafety
   module Providers
     class GoogleWebRisk < Base
@@ -7,7 +9,10 @@ module ::LinkSafety
       ENDPOINT = "https://webrisk.googleapis.com/v1/uris:search".freeze
       THREAT_TYPES = %w[MALWARE SOCIAL_ENGINEERING UNWANTED_SOFTWARE].freeze
 
-      def configured? = SiteSetting.link_safety_google_api_key.present?
+      def configured?
+        SiteSetting.link_safety_google_api_key.present? &&
+          SiteSetting.link_safety_google_user_protection_notice_acknowledged
+      end
 
       def check_many(canonical_urls, deadline: nil)
         return configuration_errors(canonical_urls) unless configured?
@@ -49,11 +54,38 @@ module ::LinkSafety
         return error_response(:malformed_response, latency) unless payload.is_a?(Hash)
 
         threat = payload["threat"]
-        types = Array(threat && threat["threatTypes"]).map(&:to_s) & THREAT_TYPES
-        expires_at = if types.any? && threat["expireTime"].present?
-          Time.zone.parse(threat["expireTime"]) rescue nil
+        return error_response(:malformed_response, latency) if threat && !threat.is_a?(Hash)
+
+        raw_types = Array(threat && threat["threatTypes"]).map(&:to_s)
+        unknown_types = raw_types - THREAT_TYPES
+        return error_response(:unsupported_threat_type, latency) if unknown_types.any?
+
+        types = raw_types & THREAT_TYPES
+        if threat.is_a?(Hash) && raw_types.empty?
+          return error_response(:malformed_response, latency)
         end
-        expires_at ||= Time.zone.now + SiteSetting.link_safety_web_risk_clean_cache_minutes.minutes
+
+        now = Time.zone.now
+        expires_at =
+          if types.any?
+            # Web Risk defines expireTime as the positive-cache lifetime for a
+            # matching ThreatUri. Do not invent a local lifetime when Google
+            # omitted or malformed it: a warning/block must be backed by a
+            # currently valid provider response.
+            return error_response(:malformed_response, latency) if threat["expireTime"].blank?
+            parsed_expiry = parse_expiry(threat["expireTime"])
+            return error_response(:malformed_response, latency) unless parsed_expiry
+            return error_response(:stale_provider_response, latency) if parsed_expiry <= now
+            parsed_expiry
+          else
+            # The Lookup API defines positive caching through ThreatUri#expireTime
+            # but does not provide a negative-cache lifetime for an empty {}
+            # response. Do not invent one: re-check clean URLs on their next
+            # uncached use so newly listed threats are not hidden behind a local
+            # false-negative cache. LookupBudget limits API-cost abuse.
+            now
+          end
+
         ::LinkSafety::CircuitBreaker.record_success(PROVIDER)
         ::LinkSafety::HealthRegistry.success!(provider: PROVIDER, latency_ms: latency)
         Providers::Base::Response.new(status: types.any? ? "threat" : "clean", threat_types: types, expires_at: expires_at, error_code: nil, latency_ms: latency, provider_calls: 1)
@@ -80,8 +112,22 @@ module ::LinkSafety
       end
 
       def configuration_errors(items)
-        ::LinkSafety::HealthRegistry.failure!(provider: PROVIDER, code: :missing_api_key)
-        items.to_h { |item| [item.fingerprint, Providers::Base::Response.new(status: "error", threat_types: [], expires_at: Time.zone.now + 5.minutes, error_code: "missing_api_key", latency_ms: nil, provider_calls: 0)] }
+        code =
+          if SiteSetting.link_safety_google_api_key.blank?
+            :missing_api_key
+          else
+            :google_user_protection_notice_not_acknowledged
+          end
+        ::LinkSafety::HealthRegistry.failure!(provider: PROVIDER, code: code)
+        items.to_h do |item|
+          [item.fingerprint, Providers::Base::Response.new(status: "error", threat_types: [], expires_at: Time.zone.now + 5.minutes, error_code: code.to_s, latency_ms: nil, provider_calls: 0)]
+        end
+      end
+
+      def parse_expiry(value)
+        Time.iso8601(value.to_s).in_time_zone
+      rescue ArgumentError, TypeError
+        nil
       end
     end
   end
