@@ -11,6 +11,7 @@ module ::LinkSafety
       changed ? doc.to_html : html
     rescue => e
       Rails.logger.warn("[LinkSafety] render filter failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :renderer, code: e.class.name)
       html
     end
 
@@ -21,7 +22,7 @@ module ::LinkSafety
         item = ::LinkSafety::Canonicalizer.call(anchor["href"])
         next unless item
         next if ::LinkSafety::TrustedDomains.local_host?(item.host) || ::LinkSafety::TrustedDomains.trusted?(item.host)
-        entry = ::LinkSafety::CacheEntry.lookup(provider: SiteSetting.link_safety_provider, fingerprint: item.fingerprint)
+        entry = ::LinkSafety::CacheEntry.lookup(provider: SiteSetting.link_safety_provider, fingerprint: item.fingerprint, legacy_fingerprint: item.legacy_fingerprint)
         next unless entry&.verdict == "threat"
 
         anchor.remove_attribute("href")
@@ -37,7 +38,12 @@ module ::LinkSafety
         changed = true
       end
       changed
+    rescue => e
+      Rails.logger.warn("[LinkSafety] render document failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :renderer, code: e.class.name)
+      false
     end
+
     def self.append_warning!(anchor)
       return if anchor.next_element&.classes&.include?("link-safety-warning")
 

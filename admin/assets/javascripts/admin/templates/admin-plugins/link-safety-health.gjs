@@ -205,6 +205,25 @@ export default RouteTemplate(
             </div>
           </div>
         </section>
+
+        <section class="ls-health__panel">
+          <h2>{{i18n "admin.link_safety.security_control_health"}}</h2>
+          <p class="ls-health__muted">{{i18n "admin.link_safety.security_control_health_description"}}</p>
+          {{#if @controller.data.control_failures.length}}
+            <div class="ls-health__grid">
+              {{#each @controller.data.control_failures as |failure|}}
+                <div class="ls-health__item">
+                  <div class="ls-health__label">{{failure.component_display}}</div>
+                  <div class="ls-health__value">{{failure.count}} {{i18n "admin.link_safety.control_failure_count"}}</div>
+                  <div class="ls-health__muted">{{failure.last_failure_code_display}}</div>
+                  <div class="ls-health__muted">{{failure.last_failure_at_display}}</div>
+                </div>
+              {{/each}}
+            </div>
+          {{else}}
+            <p class="ls-health__muted" style="margin-top: .75rem;">{{i18n "admin.link_safety.no_control_failures"}}</p>
+          {{/if}}
+        </section>
       {{else if @controller.isLoading}}
         <section class="ls-health__panel"><p>{{i18n "admin.link_safety.loading"}}</p></section>
       {{/if}}

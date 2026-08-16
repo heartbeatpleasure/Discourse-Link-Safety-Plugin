@@ -9,11 +9,11 @@ module ::LinkSafety
 
       def configured? = SiteSetting.link_safety_google_api_key.present?
 
-      def check_many(canonical_urls)
+      def check_many(canonical_urls, deadline: nil)
         return configuration_errors(canonical_urls) unless configured?
         return {} if canonical_urls.empty?
 
-        deadline = validation_deadline
+        deadline ||= validation_deadline
         canonical_urls.to_h do |item|
           if deadline_expired?(deadline)
             [item.fingerprint, budget_exceeded_response]

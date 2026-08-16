@@ -26,6 +26,7 @@ module ::LinkSafety
       detection
     rescue => e
       Rails.logger.warn("[LinkSafety] detection record failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :detection_recorder, code: e.class.name)
       nil
     end
 

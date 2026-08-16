@@ -38,7 +38,7 @@ module ::LinkSafety
         end
 
         unless @force
-          cached = ::LinkSafety::CacheEntry.lookup(provider: @provider_name, fingerprint: item.fingerprint)
+          cached = ::LinkSafety::CacheEntry.lookup(provider: @provider_name, fingerprint: item.fingerprint, legacy_fingerprint: item.legacy_fingerprint)
           if cached
             ::LinkSafety::Statistics.bump!(@provider_name, cache_hits: 1)
             results << result_from_cache(item, cached)
@@ -60,11 +60,13 @@ module ::LinkSafety
         return results
       end
 
-      provider_results = provider.check_many(unresolved)
+      primary_provider = provider
+      deadline = primary_provider.validation_deadline
+      provider_results = primary_provider.check_many(unresolved, deadline: deadline)
       unresolved.each do |item|
         response = provider_results[item.fingerprint] || error_response("missing_provider_result")
         result = persist_response(item, response)
-        result = apply_urlhaus(item, result)
+        result = apply_urlhaus(item, result, deadline: deadline)
         results << result
       end
       results
@@ -101,12 +103,12 @@ module ::LinkSafety
       end
     end
 
-    def apply_urlhaus(item, result)
+    def apply_urlhaus(item, result, deadline:)
       return result unless SiteSetting.link_safety_urlhaus_enabled
       return result if result.threat? || result.error?
       return result unless ::LinkSafety::NetworkPolicy.urlhaus_allowed?(item, surface: @surface)
 
-      threat = ::LinkSafety::Providers::Urlhaus.new.check(item)
+      threat = ::LinkSafety::Providers::Urlhaus.new.check(item, deadline: deadline)
       return result if threat.blank?
       response = Providers::Base::Response.new(status: "threat", threat_types: (result.threat_types + [threat]).uniq, expires_at: [result.expires_at, 12.hours.from_now].compact.min, error_code: nil, latency_ms: nil, provider_calls: 0)
       persist_response(item, response, source_override: "urlhaus", result_provider: "urlhaus")
@@ -117,6 +119,7 @@ module ::LinkSafety
       ::LinkSafety::CacheEntry.upsert(
         {
           provider: @provider_name,
+          source_provider: result_provider || @provider_name,
           url_fingerprint: item.fingerprint,
           host: item.host,
           verdict: response.status,
@@ -132,11 +135,21 @@ module ::LinkSafety
       build_result(item, status: response.status, threats: response.threat_types, expires_at: response.expires_at, error_code: response.error_code, source: source_name, provider: result_provider || @provider_name)
     rescue => e
       Rails.logger.warn("[LinkSafety] cache write failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :cache_write, code: e.class.name)
       build_result(item, status: response.status, threats: response.threat_types, expires_at: response.expires_at, error_code: response.error_code, source: source_name, provider: result_provider || @provider_name)
     end
 
     def result_from_cache(item, cached)
-      build_result(item, status: cached.verdict, threats: Array(cached.threat_types), expires_at: cached.expires_at, error_code: cached.error_code, source: "cache")
+      source_provider = cached.source_provider.presence || cached.provider
+      build_result(
+        item,
+        status: cached.verdict,
+        threats: Array(cached.threat_types),
+        expires_at: cached.expires_at,
+        error_code: cached.error_code,
+        source: "cache",
+        provider: source_provider,
+      )
     end
 
     def build_result(item, status:, threats:, expires_at:, error_code: nil, source:, provider: @provider_name)
@@ -159,7 +172,7 @@ module ::LinkSafety
       ::LinkSafety::Result.new(
         url: url.to_s,
         canonical_url: nil,
-        fingerprint: Digest::SHA256.hexdigest("unverified:#{url}"),
+        fingerprint: ::LinkSafety::Fingerprint.for_unverified(url),
         host: best_effort_host(url),
         status: "error",
         threat_types: [],

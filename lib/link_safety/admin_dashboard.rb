@@ -5,6 +5,7 @@ module ::LinkSafety
     def self.overview
       provider = SiteSetting.link_safety_provider.to_s
       health = ::LinkSafety::HealthRegistry.for(provider)
+      control_failures = ::LinkSafety::HealthRegistry.control_failures
       {
         generated_at: Time.zone.now,
         enabled: SiteSetting.link_safety_enabled,
@@ -21,6 +22,8 @@ module ::LinkSafety
         detections_24h: ::LinkSafety::Detection.where("detected_at >= ?", 24.hours.ago).count,
         fail_open_24h: ::LinkSafety::DailyStat.where(stat_date: [Date.current - 1, Date.current], provider: provider).sum(:fail_open),
         provider_calls_month: ::LinkSafety::DailyStat.where(stat_date: Date.current.beginning_of_month..Date.current, provider: provider).sum(:provider_calls),
+        control_failure_count: control_failures.sum { |entry| entry[:count].to_i },
+        control_failures: control_failures,
       }
     end
 

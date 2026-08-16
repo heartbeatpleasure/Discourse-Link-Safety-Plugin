@@ -12,7 +12,7 @@ module ::LinkSafety
     MAX_UNESCAPE_PASSES = 64
     NAT64_WELL_KNOWN_PREFIX = IPAddr.new("64:ff9b::/96")
 
-    CanonicalUrl = Data.define(:original, :canonical, :host, :fingerprint)
+    CanonicalUrl = Data.define(:original, :canonical, :host, :fingerprint, :legacy_fingerprint)
     Outcome = Data.define(:status, :item, :error_code) do
       def ok? = status.to_s == "ok"
       def ignored? = status.to_s == "ignored"
@@ -80,7 +80,8 @@ module ::LinkSafety
         original: @original,
         canonical: canonical,
         host: safe_browsing_escape(host),
-        fingerprint: Digest::SHA256.hexdigest(canonical),
+        fingerprint: ::LinkSafety::Fingerprint.for_url(canonical),
+        legacy_fingerprint: Digest::SHA256.hexdigest(canonical),
       )
       Outcome.new(status: "ok", item: item, error_code: nil)
     rescue CanonicalizationError => e
@@ -89,6 +90,7 @@ module ::LinkSafety
       Outcome.new(status: "error", item: nil, error_code: "invalid_url")
     rescue StandardError => e
       Rails.logger.warn("[LinkSafety] canonicalization failed class=#{e.class.name}") if defined?(Rails)
+      ::LinkSafety::HealthRegistry.control_failure!(component: :canonicalizer, code: e.class.name) if defined?(::LinkSafety::HealthRegistry)
       Outcome.new(status: "error", item: nil, error_code: "canonicalization_failure")
     end
 

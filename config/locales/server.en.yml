@@ -43,6 +43,7 @@ en:
       safe_browsing_usage_not_acknowledged: "Safe Browsing is selected but the non-commercial usage acknowledgement is not enabled."
       web_risk_private_surfaces_disabled: "Web Risk Lookup is selected while private-message or direct-chat scanning is enabled, but full private URLs are not allowed to be sent to Web Risk. Private links will not be sent to Google unless link_safety_web_risk_private_surfaces is explicitly enabled."
       circuit_open: "The provider circuit breaker is open until %{until_time}."
+      security_control_failures: "Link Safety recorded recent internal security-control failures: %{summary}. Review the Health page and server logs."
     errors:
       malicious_link: "For your safety, this link can’t be posted because it may lead to an unsafe website. Please remove or replace the link and try again."
       unavailable: "This external link could not be verified at the moment. Please try again later or post without the link."

@@ -31,6 +31,12 @@ class ProblemCheck::LinkSafetyOperationalHealth < ProblemCheck
       )
     end
 
+    control_failures = ::LinkSafety::HealthRegistry.control_failures
+    if control_failures.any?
+      summary = control_failures.map { |entry| "#{entry[:component]} (#{entry[:count]})" }.join(", ")
+      issues << I18n.t("link_safety.admin_alerts.security_control_failures", summary: summary)
+    end
+
     return no_problem if issues.empty?
 
     html = "<ul>#{issues.map { |issue| "<li>#{ERB::Util.html_escape(issue)}</li>" }.join}</ul>"

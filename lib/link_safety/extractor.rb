@@ -11,6 +11,7 @@ module ::LinkSafety
       Extraction.new(urls: Array(::PostAnalyzer.new(raw, topic_id).raw_links).compact, error_code: nil)
     rescue => e
       Rails.logger.warn("[LinkSafety] post link extraction failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :extractor, code: e.class.name)
       Extraction.new(urls: [], error_code: "extractor_failure")
     end
 
@@ -24,6 +25,7 @@ module ::LinkSafety
       cooked_result(cooked)
     rescue => e
       Rails.logger.warn("[LinkSafety] chat link extraction failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :extractor, code: e.class.name)
       Extraction.new(urls: [], error_code: "extractor_failure")
     end
 
@@ -32,6 +34,7 @@ module ::LinkSafety
       cooked_result(::PrettyText.cook(raw))
     rescue => e
       Rails.logger.warn("[LinkSafety] markdown link extraction failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :extractor, code: e.class.name)
       Extraction.new(urls: [], error_code: "extractor_failure")
     end
 
@@ -41,6 +44,7 @@ module ::LinkSafety
       Extraction.new(urls: urls, error_code: nil)
     rescue => e
       Rails.logger.warn("[LinkSafety] cooked link extraction failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :extractor, code: e.class.name)
       Extraction.new(urls: [], error_code: "extractor_failure")
     end
 

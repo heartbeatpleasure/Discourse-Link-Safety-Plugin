@@ -12,6 +12,7 @@ module ::LinkSafety
       missing_provider_result
       malformed_response
       provider_internal_error
+      response_too_large
       missing_api_key
       safe_browsing_usage_not_acknowledged
       private_surface_lookup_disabled

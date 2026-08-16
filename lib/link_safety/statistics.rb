@@ -30,6 +30,7 @@ module ::LinkSafety
       persist_counters!(provider, normalized)
     rescue => e
       Rails.logger.warn("[LinkSafety] statistics update failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :statistics, code: e.class.name)
       nil
     end
 
@@ -75,6 +76,7 @@ module ::LinkSafety
       :registered
     rescue => e
       Rails.logger.warn("[LinkSafety] statistics transaction callback failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :statistics, code: e.class.name)
       apply_snapshot!(capture)
       :immediate
     end
@@ -88,6 +90,7 @@ module ::LinkSafety
           persist_counters!(provider, normalized)
         rescue => e
           Rails.logger.warn("[LinkSafety] statistics update failed class=#{e.class.name}")
+          ::LinkSafety::HealthRegistry.control_failure!(component: :statistics, code: e.class.name)
         end
       end
       nil

@@ -2,7 +2,7 @@
 
 # name: Discourse-Link-Safety-Plugin
 # about: Checks external links in Discourse content against configurable malicious URL reputation providers.
-# version: 1.1.0
+# version: 1.2.0
 # authors: Chris
 
 add_admin_route "admin.link_safety.title", "linkSafety"
@@ -24,9 +24,11 @@ after_initialize do
 
   %w[
     lib/link_safety/result.rb
+    lib/link_safety/fingerprint.rb
     lib/link_safety/canonicalizer.rb
     lib/link_safety/extractor.rb
     lib/link_safety/trusted_domains.rb
+    lib/link_safety/surface_policy.rb
     lib/link_safety/network_policy.rb
     lib/link_safety/verification_policy.rb
     lib/link_safety/circuit_breaker.rb
@@ -61,8 +63,7 @@ after_initialize do
     next unless new_record? || will_save_change_to_raw?
 
     surface = topic&.private_message? ? :private_message : :public_post
-    enabled = surface == :private_message ? SiteSetting.link_safety_scan_private_messages : SiteSetting.link_safety_scan_public_posts
-    next unless enabled
+    next unless ::LinkSafety::SurfacePolicy.enabled?(surface)
 
     extraction = ::LinkSafety::Extractor.post_raw_result(raw, topic_id)
     ::LinkSafety::ContentValidator.validate_model!(
@@ -81,7 +82,7 @@ after_initialize do
   end
 
   plugin_instance.validate("UserProfile", :link_safety_validate_profile_links) do
-    next unless SiteSetting.link_safety_enabled && SiteSetting.link_safety_scan_profile_links
+    next unless ::LinkSafety::SurfacePolicy.enabled?(:profile)
 
     urls = []
     extraction_error = nil
@@ -110,8 +111,7 @@ after_initialize do
 
       is_dm = ::Chat::Channel.direct_channel_chatable_types.include?(chat_channel&.chatable_type)
       surface = is_dm ? :chat_dm : :chat_public
-      enabled = is_dm ? SiteSetting.link_safety_scan_chat_direct_messages : SiteSetting.link_safety_scan_chat_public
-      next unless enabled
+      next unless ::LinkSafety::SurfacePolicy.enabled?(surface)
 
       extraction = ::LinkSafety::Extractor.chat_message_result(message, user: user)
       ::LinkSafety::ContentValidator.validate_model!(

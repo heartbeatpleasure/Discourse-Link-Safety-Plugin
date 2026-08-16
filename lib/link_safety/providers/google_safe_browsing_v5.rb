@@ -31,11 +31,11 @@ module ::LinkSafety
         SiteSetting.link_safety_google_api_key.present? && SiteSetting.link_safety_safe_browsing_noncommercial_acknowledged
       end
 
-      def check_many(canonical_urls)
+      def check_many(canonical_urls, deadline: nil)
         return configuration_errors(canonical_urls) unless configured?
         return {} if canonical_urls.empty?
 
-        deadline = validation_deadline
+        deadline ||= validation_deadline
         digest_maps = {}
         prefix_sets = {}
         invalid_results = {}
@@ -50,6 +50,10 @@ module ::LinkSafety
             prefix_sets[item.fingerprint] = digests.map { |digest| digest.byteslice(0, 4) }.uniq
           rescue ::LinkSafety::Canonicalizer::CanonicalizationError => e
             invalid_results[item.fingerprint] = build_error_response(e.code)
+          rescue StandardError => e
+            Rails.logger.warn("[LinkSafety] Safe Browsing expression generation failed class=#{e.class.name}")
+            ::LinkSafety::HealthRegistry.control_failure!(component: :canonicalizer, code: e.class.name)
+            invalid_results[item.fingerprint] = build_error_response(:canonicalization_failure)
           end
         end
 

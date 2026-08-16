@@ -58,8 +58,17 @@ Transient provider availability failures can follow the configured `fail_open` p
 - Web Risk Lookup sends the full checked URL to Google. Private-message and direct-chat URLs are therefore not sent to Web Risk unless `link_safety_web_risk_private_surfaces` is explicitly enabled.
 - URLhaus receives the full URL and is disabled for private surfaces by default.
 - Full-URL providers do not receive loopback, private, link-local, reserved, or intranet destinations unless `link_safety_full_url_providers_allow_private_networks` is explicitly enabled.
-- Plugin cache/detection/statistics tables do not store full URLs; they store SHA-256 fingerprints and normalized hostnames.
+- Plugin cache/detection/statistics tables do not store full URLs. New URL identifiers use a site-secret HMAC-SHA-256 fingerprint plus the normalized hostname. Existing SHA-256 cache identifiers are accepted only as a temporary read fallback until their normal cache expiry, preventing protection gaps during upgrade.
 - Google API keys are sent in the `X-Goog-Api-Key` request header instead of the request URL, and all API/Auth keys remain secret server-side site settings.
+
+## Operational hardening
+
+- Provider responses are streamed into a bounded buffer and rejected once they exceed 512 KiB; a declared oversized `Content-Length` is rejected before body reads.
+- HTTPS provider connections verify certificates and require TLS 1.2 or newer when supported by the running Ruby/OpenSSL stack.
+- A single validation deadline is shared by primary and supplemental provider work for one check operation.
+- Pending retries re-check the current surface settings and current Monitor/Enforce mode before doing provider work.
+- The Health page exposes privacy-safe internal security-control failure counters that expire after one hour without another failure; no URLs, message content, API keys, or provider response bodies are included. Repeated/internal control failures also surface through the Discourse problem-check framework.
+- Cached verdicts retain the provider that actually supplied the verdict, including URLhaus supplemental detections.
 
 ## User Notes
 
@@ -106,7 +115,7 @@ The plugin defaults to **disabled** and **monitor** mode. Configure and test the
 
 ## Google Safe Browsing user protection notice
 
-Google Safe Browsing protection is not perfect. Risk information can contain false positives and false negatives: some risky sites may not be identified and some safe sites may be identified in error. User-visible warnings derived from Google Safe Browsing are qualified as potential risk and include Google attribution. A Safe Browsing threat verdict is not enforced beyond the provider's valid cache lifetime, and enforcement data is capped to the freshness required by Google's terms.
+Google Safe Browsing protection is not perfect. Risk information can contain false positives and false negatives: some risky sites may not be identified and some safe sites may be identified in error. User-visible Link Safety warnings are intentionally provider-independent. A Safe Browsing threat verdict is not enforced beyond the provider's valid cache lifetime, and enforcement data is capped to the freshness required by Google's terms.
 
 ## Settings navigation
 
