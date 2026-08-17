@@ -23,10 +23,23 @@ RSpec.describe LinkSafety::Canonicalizer do
       "http://www.gotaport.com:1234/" => "http://www.gotaport.com/",
       "https://www.securesite.com/" => "https://www.securesite.com/",
       "http://host.com//twoslashes?more//slashes" => "http://host.com/twoslashes?more//slashes",
+      "http://host.com/ab%23c" => "http://host.com/ab%23c",
     }.each do |input, expected|
       it "canonicalizes #{input.inspect}" do
         expect(described_class.call(input)&.canonical).to eq(expected)
       end
+    end
+
+    it "distinguishes a literal fragment delimiter from an encoded hash in the path" do
+      expect(described_class.call("http://host.com/ab%23c#fragment")&.canonical).to eq(
+        "http://host.com/ab%23c",
+      )
+    end
+
+    it "preserves an encoded hash inside the query as URL data" do
+      expect(described_class.call("http://host.com/a?value=x%23y#fragment")&.canonical).to eq(
+        "http://host.com/a?value=x%23y",
+      )
     end
 
     it "removes tab, CR and LF characters" do
@@ -102,6 +115,14 @@ RSpec.describe LinkSafety::Canonicalizer do
       hosts = expressions.map { |expression| expression.split("/", 2).first }.uniq
       expect(hosts.length).to eq(5)
       expect(hosts).to include("f.com", "a.b.c.d.e.f.com")
+    end
+
+    it "keeps an encoded hash in the full Safe Browsing path expression" do
+      item = described_class.call("http://host.com/ab%23c")
+      expressions = described_class.safe_browsing_expressions(item.canonical)
+
+      expect(expressions).to include("host.com/ab%23c")
+      expect(expressions).not_to include("host.com/ab")
     end
 
     it "does not manufacture a filename path with a trailing slash" do

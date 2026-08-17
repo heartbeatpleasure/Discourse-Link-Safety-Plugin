@@ -57,8 +57,13 @@ module ::LinkSafety
       end
 
       # Safe Browsing removes the literal fragment before percent-unescaping.
+      # A # that appears only after recursive percent-decoding is therefore URL
+      # data, not a fragment delimiter. Protect those decoded hashes while the
+      # generic URI parser separates host/path/query, then restore them inside
+      # the individual components before canonicalization.
       value = value.split("#", 2).first
       value = repeatedly_unescape(value)
+      value = protect_decoded_hashes(value)
 
       uri = parse_url(value)
       raise CanonicalizationError, :invalid_url unless uri
@@ -66,12 +71,12 @@ module ::LinkSafety
       raise CanonicalizationError, :invalid_url if uri.host.to_s.empty?
 
       scheme = uri.scheme.downcase
-      host = canonical_host(uri.host.to_s)
+      host = canonical_host(restore_decoded_hashes(uri.host.to_s))
       raise CanonicalizationError, :invalid_url if host.to_s.empty?
 
-      raw_path = uri.path.to_s.empty? ? "/" : uri.path.to_s
+      raw_path = uri.path.to_s.empty? ? "/" : restore_decoded_hashes(uri.path.to_s)
       path = canonical_path(raw_path)
-      query = uri.query.nil? ? nil : uri.query.to_s
+      query = uri.query.nil? ? nil : restore_decoded_hashes(uri.query.to_s)
 
       canonical = "#{scheme}://#{safe_browsing_escape(host)}#{safe_browsing_escape(path)}"
       canonical += "?#{safe_browsing_escape(query)}" unless query.nil?
@@ -173,6 +178,14 @@ module ::LinkSafety
       rescue StandardError
         nil
       end
+    end
+
+    def protect_decoded_hashes(value)
+      value.to_s.gsub("#", "%23")
+    end
+
+    def restore_decoded_hashes(value)
+      value.to_s.gsub(/%23/i, "#")
     end
 
     def repeatedly_unescape(value)
