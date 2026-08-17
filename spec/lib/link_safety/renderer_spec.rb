@@ -35,6 +35,8 @@ RSpec.describe LinkSafety::Renderer do
     expect(advisory).to be_present
     expect(advisory.text).to eq("Advisory provided by Google")
     expect(advisory["href"]).to eq(LinkSafety::WarningPresenter::SAFE_BROWSING_ADVISORY)
+    expect(warning.text).not_to include(LinkSafety::WarningPresenter::SAFE_BROWSING_ADVISORY)
+    expect(warning.text).not_to include("https://")
   end
   it "does not add Google attribution to a URLhaus-only cached threat" do
     allow(LinkSafety::CacheEntry).to receive(:lookup).and_return(

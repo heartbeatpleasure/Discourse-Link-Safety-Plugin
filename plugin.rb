@@ -2,7 +2,7 @@
 
 # name: Discourse-Link-Safety-Plugin
 # about: Checks external links in Discourse content against configurable malicious URL reputation providers.
-# version: 1.2.4
+# version: 1.2.5
 # authors: Chris
 
 add_admin_route "admin.link_safety.title", "linkSafety"

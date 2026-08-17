@@ -27,10 +27,7 @@ module ::LinkSafety
     def self.validation_message_for_provider(provider)
       return I18n.t("link_safety.errors.malicious_link") unless google_provider?(provider)
 
-      I18n.t(
-        "link_safety.errors.malicious_link_google",
-        advisory_url: advisory_url(provider),
-      )
+      I18n.t("link_safety.errors.malicious_link_google")
     end
 
     def self.rendered_warning(provider)

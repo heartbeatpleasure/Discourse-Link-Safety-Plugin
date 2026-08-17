@@ -46,8 +46,11 @@ en:
       circuit_open: "The provider circuit breaker is open until %{until_time}."
       security_control_failures: "Link Safety recorded recent internal security-control failures: %{summary}. Review the Health page and server logs."
     errors:
-      malicious_link: "For your safety, this link can’t be posted because it may lead to an unsafe website. Please remove or replace the link and try again."
-      malicious_link_google: "For your safety, this link can’t be posted because it may lead to a potentially unsafe website. Please remove or replace the link and try again. Advisory provided by Google: %{advisory_url}. Google cannot guarantee that its information is comprehensive and error-free."
+      malicious_link: "For your safety and the safety of our other members, this link can’t be posted because it may lead to a potentially unsafe website. Please remove or replace the link and try again."
+      malicious_link_google: |-
+        For your safety and the safety of our other members, this link can’t be posted because it may lead to a potentially unsafe website. Please remove or replace the link and try again.
+
+        Advisory provided by Google. Safe Browsing may occasionally miss unsafe sites or flag safe sites in error.
       unavailable: "This external link could not be verified at the moment. Please try again later or post without the link."
       too_many_links: "This content contains too many external links to verify at once. Reduce the number of external links and try again."
       configuration: "External link verification is not configured correctly. Please contact the site staff."
@@ -57,4 +60,4 @@ en:
     rendered_content_unavailable: "This content could not be rendered safely because Link Safety encountered an internal verification error."
     rendered_warning_google: "This link has been disabled because it may lead to a potentially unsafe website."
     google_advisory_label: "Advisory provided by Google"
-    google_accuracy_notice: "Google cannot guarantee that its information is comprehensive and error-free; some risky sites may not be identified and some safe sites may be identified in error."
+    google_accuracy_notice: "Safe Browsing may occasionally miss unsafe sites or flag safe sites in error."
