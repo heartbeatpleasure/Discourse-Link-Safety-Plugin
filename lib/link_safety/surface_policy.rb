@@ -16,6 +16,10 @@ module ::LinkSafety
         SiteSetting.link_safety_scan_chat_direct_messages
       when "profile"
         SiteSetting.link_safety_scan_profile_links
+      when "topic_featured_link"
+        SiteSetting.link_safety_scan_topic_featured_links
+      when "group_profile"
+        SiteSetting.link_safety_scan_group_bio_links
       when "admin_test"
         true
       else

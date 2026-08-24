@@ -5,7 +5,10 @@ module ::LinkSafety
     def self.apply!(doc)
       return doc if doc.blank? || SiteSetting.link_safety_mode != "enforce"
       doc.css("a.onebox[href], a.inline-onebox-loading[href]").each do |anchor|
-        item = ::LinkSafety::Canonicalizer.call(anchor["href"])
+        candidate = ::LinkSafety::UrlCandidateClassifier.classify(anchor["href"])
+        next unless candidate.checkable?
+
+        item = ::LinkSafety::Canonicalizer.call(candidate.url)
         next unless item
         next if ::LinkSafety::TrustedDomains.local_host?(item.host) || ::LinkSafety::TrustedDomains.trusted?(item.host)
         entry = ::LinkSafety::CacheEntry.lookup(provider: SiteSetting.link_safety_provider, fingerprint: item.fingerprint, legacy_fingerprint: item.legacy_fingerprint)
@@ -27,8 +30,8 @@ module ::LinkSafety
 
     def self.fail_closed!(doc)
       doc.css("a.onebox[href], a.inline-onebox-loading[href]").each do |anchor|
-        href = anchor["href"].to_s.strip
-        next unless href.match?(%r{\Ahttps?://}i) || href.start_with?("//")
+        candidate = ::LinkSafety::UrlCandidateClassifier.classify(anchor["href"])
+        next unless candidate.checkable?
 
         classes = anchor["class"].to_s.split
         classes -= %w[onebox inline-onebox-loading]

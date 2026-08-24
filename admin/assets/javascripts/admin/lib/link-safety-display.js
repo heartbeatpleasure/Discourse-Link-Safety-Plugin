@@ -39,6 +39,8 @@ export function surfaceLabel(surface) {
     chat_public: "surface_chat_public",
     chat_dm: "surface_chat_dm",
     profile: "surface_profile",
+    topic_featured_link: "surface_topic_featured_link",
+    group_profile: "surface_group_profile",
   }[surface];
 
   return key ? i18n(`admin.link_safety.${key}`) : humanizeToken(surface);

@@ -3,7 +3,10 @@
 module ::LinkSafety
   class ContentValidator
     MAX_RAW_URL_CANDIDATES = 200
-    def self.validate_model!(model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil)
+
+    def self.validate_model!(
+      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, provider_surface: nil
+    )
       ::LinkSafety::DetectionRecorder.clear_queued!(model)
 
       _value, capture = ::LinkSafety::Statistics.capture do
@@ -14,6 +17,7 @@ module ::LinkSafety
           user: user,
           failure_policy: failure_policy,
           extraction_error: extraction_error,
+          provider_surface: provider_surface,
         )
       end
 
@@ -36,7 +40,9 @@ module ::LinkSafety
       nil
     end
 
-    def self.validate_model_without_statistics_capture!(model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil)
+    def self.validate_model_without_statistics_capture!(
+      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, provider_surface: nil
+    )
       effective_failure_policy = (failure_policy || SiteSetting.link_safety_failure_policy).to_s
 
       if extraction_error.present?
@@ -48,13 +54,17 @@ module ::LinkSafety
         return
       end
 
-      urls = Array(urls).compact.uniq
+      # Discourse cooking creates relative hrefs for mentions, hashtags, quote
+      # sources, chat transcripts and other internal UI. Classify those before
+      # canonicalization so they can never become invalid_url verification
+      # failures. Direct metadata fields also pass through this filter, keeping
+      # the rule consistent across every validation surface.
+      urls = ::LinkSafety::UrlCandidateClassifier.filter(urls)
       return if urls.empty?
 
-      # Bound work before canonicalization. The configured external-link limit
-      # applies after trusted/local filtering, while this absolute ceiling stops
-      # a malformed or adversarial submission from forcing unbounded URL parser
-      # work before that filtering can happen.
+      # Bound only navigation candidates that can reach canonicalization. A post
+      # with many internal Discourse links/mentions must not consume the external
+      # URL budget, while adversarial external candidate sets remain bounded.
       if urls.length > MAX_RAW_URL_CANDIDATES
         model.errors.add(:base, I18n.t("link_safety.errors.too_many_links"))
         return
@@ -76,7 +86,7 @@ module ::LinkSafety
         return
       end
 
-      results = ::LinkSafety::Checker.check_many(urls, surface: surface, user: user)
+      results = ::LinkSafety::Checker.check_many(urls, surface: provider_surface || surface, user: user)
       threats = results.select(&:threat?)
       errors = results.select(&:error?)
 

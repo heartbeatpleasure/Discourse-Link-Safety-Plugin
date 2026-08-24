@@ -45,6 +45,12 @@ RSpec.describe LinkSafety::NetworkPolicy do
       expect(code).to eq("private_surface_lookup_disabled")
     end
 
+    it "treats restricted Link Safety metadata as private for full-URL providers" do
+      allowed, code = described_class.web_risk_allowed?(Item.new(host: "example.com"), surface: :private_metadata)
+      expect(allowed).to eq(false)
+      expect(code).to eq("private_surface_lookup_disabled")
+    end
+
     it "does not send private-network URLs to a full-URL provider by default" do
       SiteSetting.link_safety_web_risk_private_surfaces = true
       allowed, code = described_class.web_risk_allowed?(Item.new(host: "10.0.0.10"), surface: :private_message)
@@ -67,4 +73,12 @@ RSpec.describe LinkSafety::NetworkPolicy do
     expect(described_class.private_or_special_host?("1.0.0.127.in-addr.arpa")).to eq(true)
   end
 
+  describe ".urlhaus_allowed?" do
+    it "treats restricted Link Safety metadata as private unless explicitly enabled" do
+      expect(described_class.urlhaus_allowed?(Item.new(host: "example.com"), surface: :private_metadata)).to eq(false)
+
+      SiteSetting.link_safety_urlhaus_private_surfaces = true
+      expect(described_class.urlhaus_allowed?(Item.new(host: "example.com"), surface: :private_metadata)).to eq(true)
+    end
+  end
 end

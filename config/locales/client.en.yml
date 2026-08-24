@@ -3,7 +3,7 @@ en:
     admin:
       link_safety:
         title: "Link Safety"
-        description: "Malicious-link protection for posts, private messages, Chat, oneboxes, and profile links."
+        description: "Malicious-link protection for posts, private messages, Chat, oneboxes, profile links, featured links, and group biographies."
         open_settings: "Open settings"
         open_health: "Health"
         open_detections: "Detections"
@@ -93,6 +93,8 @@ en:
         surface_chat_public: "Public Chat"
         surface_chat_dm: "Chat direct message"
         surface_profile: "Profile"
+        surface_topic_featured_link: "Topic featured link"
+        surface_group_profile: "Group biography"
         action_monitor_only: "Monitor only"
         action_blocked_before_save: "Blocked before saving"
         action_disabled_after_publish: "Disabled after publishing"

@@ -22,7 +22,10 @@ module ::LinkSafety
       return false if SiteSetting.link_safety_mode != "enforce"
       changed = false
       doc.css("a[href]").each do |anchor|
-        item = ::LinkSafety::Canonicalizer.call(anchor["href"])
+        candidate = ::LinkSafety::UrlCandidateClassifier.classify(anchor["href"])
+        next unless candidate.checkable?
+
+        item = ::LinkSafety::Canonicalizer.call(candidate.url)
         next unless item
         next if ::LinkSafety::TrustedDomains.local_host?(item.host) || ::LinkSafety::TrustedDomains.trusted?(item.host)
         entry = ::LinkSafety::CacheEntry.lookup(provider: SiteSetting.link_safety_provider, fingerprint: item.fingerprint, legacy_fingerprint: item.legacy_fingerprint)
@@ -81,8 +84,9 @@ module ::LinkSafety
     private_class_method :fail_closed_external_links!
 
     def self.external_http_href?(href)
-      value = href.to_s.strip
-      value.match?(%r{\Ahttps?://}i) || value.start_with?("//")
+      ::LinkSafety::UrlCandidateClassifier.classify(href).checkable?
+    rescue StandardError
+      false
     end
     private_class_method :external_http_href?
 

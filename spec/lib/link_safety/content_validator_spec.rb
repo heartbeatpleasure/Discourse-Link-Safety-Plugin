@@ -74,6 +74,7 @@ RSpec.describe LinkSafety::ContentValidator do
 
     expect(model.errors[:base]).to include(I18n.t("link_safety.errors.unavailable"))
   end
+
   it "accepts an explicit fail-closed override for profile-like flows" do
     SiteSetting.link_safety_failure_policy = "fail_open"
     allow(LinkSafety::Checker).to receive(:check_many).and_return([result("error")])
@@ -135,4 +136,57 @@ RSpec.describe LinkSafety::ContentValidator do
     expect(model.errors[:base]).to include(I18n.t("link_safety.errors.too_many_links"))
   end
 
+  it "skips relative Discourse links before canonicalization and provider lookup" do
+    expect(LinkSafety::Checker).not_to receive(:check_many)
+
+    described_class.validate_model!(
+      model: model,
+      urls: ["/u/example", "/groups/team", "/t/topic/123", "/tag/security", "#heading"],
+      surface: :public_post,
+      user: user,
+    )
+
+    expect(model.errors).to be_empty
+  end
+
+  it "does not let a large number of internal links consume the external candidate limit" do
+    urls = 250.times.map { |i| "/t/topic/#{i}" }
+    expect(LinkSafety::Checker).not_to receive(:check_many)
+
+    described_class.validate_model!(model: model, urls: urls, surface: :public_post, user: user)
+
+    expect(model.errors).to be_empty
+  end
+
+  it "still fails closed for a malformed explicit HTTPS target in enforce mode" do
+    SiteSetting.link_safety_mode = "enforce"
+    SiteSetting.link_safety_failure_policy = "fail_open"
+    expect(LinkSafety::Checker).not_to receive(:check_many)
+
+    described_class.validate_model!(model: model, urls: ["https://"], surface: :public_post, user: user)
+
+    expect(model.errors[:base]).to include(I18n.t("link_safety.errors.unavailable"))
+  end
+
+  it "uses a provider-only privacy surface without changing detection attribution" do
+    SiteSetting.link_safety_mode = "monitor"
+    allow(LinkSafety::Checker).to receive(:check_many).and_return([result("threat")])
+
+    described_class.validate_model!(
+      model: model,
+      urls: ["https://example.com/"],
+      surface: :topic_featured_link,
+      provider_surface: :private_metadata,
+      user: user,
+    )
+
+    expect(LinkSafety::Checker).to have_received(:check_many).with(
+      ["https://example.com/"],
+      surface: :private_metadata,
+      user: user,
+    )
+    expect(LinkSafety::DetectionRecorder).to have_received(:record!).with(
+      hash_including(surface: :topic_featured_link, action: :monitor_only),
+    )
+  end
 end

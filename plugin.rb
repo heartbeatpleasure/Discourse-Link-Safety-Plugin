@@ -2,7 +2,7 @@
 
 # name: Discourse-Link-Safety-Plugin
 # about: Checks external links in Discourse content against configurable malicious URL reputation providers.
-# version: 1.2.5
+# version: 1.3.0
 # authors: Chris
 
 add_admin_route "admin.link_safety.title", "linkSafety"
@@ -26,8 +26,11 @@ after_initialize do
     lib/link_safety/result.rb
     lib/link_safety/fingerprint.rb
     lib/link_safety/canonicalizer.rb
-    lib/link_safety/extractor.rb
     lib/link_safety/trusted_domains.rb
+    lib/link_safety/url_candidate_classifier.rb
+    lib/link_safety/actor_resolver.rb
+    lib/link_safety/retry_context.rb
+    lib/link_safety/extractor.rb
     lib/link_safety/surface_policy.rb
     lib/link_safety/network_policy.rb
     lib/link_safety/lookup_budget.rb
@@ -67,13 +70,14 @@ after_initialize do
     surface = topic&.private_message? ? :private_message : :public_post
     next unless ::LinkSafety::SurfacePolicy.enabled?(surface)
 
-    extraction = ::LinkSafety::Extractor.post_raw_result(raw, topic_id)
+    actor = ::LinkSafety::ActorResolver.for_post(self)
+    extraction = ::LinkSafety::Extractor.post_raw_result(raw, topic_id, user: actor)
     ::LinkSafety::ContentValidator.validate_model!(
       model: self,
       urls: extraction.urls,
       extraction_error: extraction.error_code,
       surface: surface,
-      user: user,
+      user: actor,
     )
   end
 
@@ -106,6 +110,42 @@ after_initialize do
     )
   end
 
+  plugin_instance.validate("Topic", :link_safety_validate_featured_link) do
+    next unless ::LinkSafety::SurfacePolicy.enabled?(:topic_featured_link)
+    next unless featured_link.present? && (new_record? || will_save_change_to_featured_link?)
+
+    actor = ::LinkSafety::ActorResolver.for_topic(self)
+    ::LinkSafety::ContentValidator.validate_model!(
+      model: self,
+      urls: [featured_link],
+      surface: :topic_featured_link,
+      user: actor,
+      provider_surface: category&.read_restricted? ? :private_metadata : :topic_featured_link,
+      failure_policy: SiteSetting.link_safety_metadata_fail_open ? :fail_open : :fail_closed,
+    )
+  end
+
+  plugin_instance.validate("Group", :link_safety_validate_group_bio_links) do
+    next unless ::LinkSafety::SurfacePolicy.enabled?(:group_profile)
+    next if automatic
+    next unless bio_raw.present? && (new_record? || will_save_change_to_bio_raw?)
+
+    extraction = ::LinkSafety::Extractor.markdown_result(bio_raw)
+    ::LinkSafety::ContentValidator.validate_model!(
+      model: self,
+      urls: extraction.urls,
+      extraction_error: extraction.error_code,
+      surface: :group_profile,
+      provider_surface:
+        visibility_level == ::Group.visibility_levels[:public] ? :group_profile : :private_metadata,
+      # Group does not expose the editing user at model-validation time. Do not
+      # guess an owner and risk attributing a detection/User Note to the wrong
+      # person; group changes still use the global lookup budget.
+      user: nil,
+      failure_policy: SiteSetting.link_safety_metadata_fail_open ? :fail_open : :fail_closed,
+    )
+  end
+
   if defined?(::Chat::Message)
     plugin_instance.validate("Chat::Message", :link_safety_validate_chat_links) do
       next unless SiteSetting.link_safety_enabled
@@ -115,13 +155,18 @@ after_initialize do
       surface = is_dm ? :chat_dm : :chat_public
       next unless ::LinkSafety::SurfacePolicy.enabled?(surface)
 
-      extraction = ::LinkSafety::Extractor.chat_message_result(message, user: user)
+      actor = ::LinkSafety::ActorResolver.for_chat_message(self)
+      extraction = ::LinkSafety::Extractor.chat_message_result(
+        message,
+        user: actor,
+        author_username: user&.username,
+      )
       ::LinkSafety::ContentValidator.validate_model!(
         model: self,
         urls: extraction.urls,
         extraction_error: extraction.error_code,
         surface: surface,
-        user: user,
+        user: actor,
       )
     end
 

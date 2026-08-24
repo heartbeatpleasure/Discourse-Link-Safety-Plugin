@@ -49,7 +49,19 @@ plugins:
     default: true
     client: false
 
+  link_safety_scan_topic_featured_links:
+    default: false
+    client: false
+
+  link_safety_scan_group_bio_links:
+    default: false
+    client: false
+
   link_safety_profile_fail_open:
+    default: false
+    client: false
+
+  link_safety_metadata_fail_open:
     default: false
     client: false
 

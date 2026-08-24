@@ -35,4 +35,14 @@ RSpec.describe LinkSafety::OneboxGate do
     expect(doc.css("a")[1]["class"].to_s.split).to include("onebox")
   end
 
+  it "does not suppress an internal Discourse onebox marker" do
+    SiteSetting.link_safety_mode = "enforce"
+    doc = Nokogiri::HTML5.fragment('<a class="onebox" href="/t/topic/1">Internal</a>')
+
+    described_class.apply!(doc)
+
+    expect(doc.at_css("a")["class"].to_s.split).to include("onebox")
+  end
+
+
 end

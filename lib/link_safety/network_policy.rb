@@ -4,7 +4,7 @@ require "ipaddr"
 
 module ::LinkSafety
   class NetworkPolicy
-    PRIVATE_SURFACES = %i[private_message chat_dm].freeze
+    PRIVATE_SURFACES = %i[private_message chat_dm private_metadata].freeze
     SPECIAL_USE_SUFFIXES = %w[.localhost .local .localdomain .internal .home .lan .test .invalid .example .onion .alt .arpa].freeze
     NON_PUBLIC_NETWORKS = %w[
       0.0.0.0/8

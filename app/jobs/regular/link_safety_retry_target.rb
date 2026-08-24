@@ -12,8 +12,13 @@ module ::Jobs
 
       target = find_target(args[:target_type], args[:target_id])
       return unless target
+      return unless ::LinkSafety::RetryContext.matches_content?(target, args[:content_hash])
 
-      extraction, user = target_extraction(target)
+      extraction, user = target_extraction(
+        target,
+        actor_id: args[:actor_id],
+        expected_hash: args[:content_hash],
+      )
       return if extraction.error_code.present? || extraction.urls.empty?
 
       previous_verdicts = current_verdicts(extraction.urls)
@@ -22,6 +27,7 @@ module ::Jobs
         surface: surface,
         force: true,
         bypass_circuit: false,
+        user: user,
       )
       threats = results.select(&:threat?)
       errors = results.select(&:error?)
@@ -52,16 +58,19 @@ module ::Jobs
           target_id: args[:target_id],
           surface: args[:surface],
           attempt: attempt + 1,
+          actor_id: args[:actor_id],
+          content_hash: args[:content_hash],
         )
       elsif threats.any?
-        schedule_threat_refresh(target: target, surface: surface, results: threats)
+        schedule_threat_refresh(target: target, surface: surface, results: threats, actor: user)
       end
     end
 
     private
 
     def current_verdicts(urls)
-      Array(urls).filter_map { |url| ::LinkSafety::Canonicalizer.call(url) }.to_h do |item|
+      candidates = ::LinkSafety::UrlCandidateClassifier.filter(urls)
+      candidates.filter_map { |url| ::LinkSafety::Canonicalizer.call(url) }.to_h do |item|
         entry = ::LinkSafety::CacheEntry.lookup(
           provider: SiteSetting.link_safety_provider,
           fingerprint: item.fingerprint,
@@ -71,7 +80,7 @@ module ::Jobs
       end
     end
 
-    def schedule_threat_refresh(target:, surface:, results:)
+    def schedule_threat_refresh(target:, surface:, results:, actor:)
       return unless ::LinkSafety::SurfacePolicy.enabled?(surface)
 
       earliest_expiry = results.filter_map(&:expires_at).min
@@ -86,6 +95,8 @@ module ::Jobs
         target_id: target.id,
         surface: surface.to_s,
         attempt: 1,
+        actor_id: actor&.id,
+        content_hash: ::LinkSafety::RetryContext.content_hash_for(target),
       )
     end
 
@@ -96,12 +107,23 @@ module ::Jobs
       end
     end
 
-    def target_extraction(target)
+    def target_extraction(target, actor_id: nil, expected_hash: nil)
+      actor = ::LinkSafety::RetryContext.actor_for(
+        target,
+        actor_id: actor_id,
+        expected_hash: expected_hash,
+      )
+
       case target
       when ::Post
-        [::LinkSafety::Extractor.post_raw_result(target.raw, target.topic_id), target.user]
+        [::LinkSafety::Extractor.post_raw_result(target.raw, target.topic_id, user: actor), actor]
       else
-        [::LinkSafety::Extractor.chat_message_result(target.message, user: target.user), target.user]
+        extraction = ::LinkSafety::Extractor.chat_message_result(
+          target.message,
+          user: actor,
+          author_username: target.user&.username,
+        )
+        [extraction, actor]
       end
     end
 

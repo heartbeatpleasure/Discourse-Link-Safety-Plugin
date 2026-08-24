@@ -67,4 +67,29 @@ RSpec.describe LinkSafety::Renderer do
     expect(doc.at_css(".link-safety-warning").text).to eq(I18n.t("link_safety.rendered_warning_unverified"))
   end
 
+  it "never looks up cached verdicts for Discourse-generated relative links" do
+    SiteSetting.link_safety_mode = "enforce"
+    allow(LinkSafety::CacheEntry).to receive(:lookup).and_call_original
+
+    html = '<p><a class="mention" href="/u/example">@example</a><a href="/t/topic/1">Topic</a></p>'
+    output = described_class.render_html(html)
+    doc = Nokogiri::HTML5.fragment(output)
+
+    expect(doc.css("a").map { |a| a["href"] }).to eq(["/u/example", "/t/topic/1"])
+    expect(LinkSafety::CacheEntry).not_to have_received(:lookup)
+  end
+
+  it "leaves an absolute current-site link alone in enforce mode" do
+    SiteSetting.link_safety_mode = "enforce"
+    allow(LinkSafety::TrustedDomains).to receive(:local_host?) do |host|
+      host == "forum.example"
+    end
+
+    html = '<p><a href="https://forum.example/t/topic/1">Topic</a></p>'
+    output = described_class.render_html(html)
+
+    expect(Nokogiri::HTML5.fragment(output).at_css("a")["href"]).to eq("https://forum.example/t/topic/1")
+  end
+
+
 end
