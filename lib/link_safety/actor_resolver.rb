@@ -18,13 +18,13 @@ module ::LinkSafety
 
       post.last_editor || acting_user || owner
     rescue StandardError
-      post&.user
+      nil
     end
 
     def self.for_chat_message(message)
       message&.last_editor || message&.user
     rescue StandardError
-      message&.user
+      nil
     end
 
     def self.for_topic(topic)

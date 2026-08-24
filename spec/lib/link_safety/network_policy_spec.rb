@@ -75,10 +75,14 @@ RSpec.describe LinkSafety::NetworkPolicy do
 
   describe ".urlhaus_allowed?" do
     it "treats restricted Link Safety metadata as private unless explicitly enabled" do
-      expect(described_class.urlhaus_allowed?(Item.new(host: "example.com"), surface: :private_metadata)).to eq(false)
+      allowed, code = described_class.urlhaus_allowed?(Item.new(host: "example.com"), surface: :private_metadata)
+      expect(allowed).to eq(false)
+      expect(code).to eq("private_surface_lookup_disabled")
 
       SiteSetting.link_safety_urlhaus_private_surfaces = true
-      expect(described_class.urlhaus_allowed?(Item.new(host: "example.com"), surface: :private_metadata)).to eq(true)
+      allowed, code = described_class.urlhaus_allowed?(Item.new(host: "example.com"), surface: :private_metadata)
+      expect(allowed).to eq(true)
+      expect(code).to be_nil
     end
   end
 end

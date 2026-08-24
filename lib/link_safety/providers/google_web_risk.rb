@@ -28,7 +28,7 @@ module ::LinkSafety
       private
 
       def check_one(item, deadline:)
-        params = [["uri", item.canonical]]
+        params = [["uri", item.full_url]]
         THREAT_TYPES.each { |type| params << ["threatTypes", type] }
         uri = URI("#{ENDPOINT}?#{URI.encode_www_form(params)}")
 

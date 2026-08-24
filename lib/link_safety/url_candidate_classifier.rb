@@ -233,13 +233,8 @@ module ::LinkSafety
     private_class_method :browser_normalized_path
 
     def self.local_target?(value)
-      parse_value = value.start_with?("//") ? "#{current_site_scheme}:#{value}" : value
-      uri = Addressable::URI.parse(parse_value)
-      host = uri.host.to_s
-      return false if host.blank?
-
-      ::LinkSafety::TrustedDomains.local_host?(host)
-    rescue Addressable::URI::InvalidURIError, ArgumentError, TypeError
+      ::LinkSafety::SiteOrigin.same?(value)
+    rescue StandardError
       false
     end
     private_class_method :local_target?

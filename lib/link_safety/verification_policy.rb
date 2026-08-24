@@ -11,6 +11,7 @@ module ::LinkSafety
       validation_budget_exceeded
       user_lookup_rate_limited
       global_lookup_rate_limited
+      security_lookup_rate_limited
       lookup_budget_unavailable
       missing_provider_result
       malformed_response
@@ -19,9 +20,22 @@ module ::LinkSafety
       provider_internal_error
       response_too_large
       missing_api_key
+      missing_urlhaus_auth_key
       safe_browsing_usage_not_acknowledged
       private_surface_lookup_disabled
       private_network_full_url_provider_disabled
+    ].freeze
+
+    NON_RETRYABLE_CODES = %w[
+      missing_api_key
+      missing_urlhaus_auth_key
+      safe_browsing_usage_not_acknowledged
+      private_surface_lookup_disabled
+      private_network_full_url_provider_disabled
+      invalid_url
+      url_too_long
+      excessive_percent_encoding
+      canonicalization_failure
     ].freeze
 
     TRANSIENT_HTTP_CODES = %w[http_408 http_425 http_429].freeze
@@ -45,6 +59,7 @@ module ::LinkSafety
       value = code.to_s
       return true if %w[
         missing_api_key
+        missing_urlhaus_auth_key
         safe_browsing_usage_not_acknowledged
         private_surface_lookup_disabled
         private_network_full_url_provider_disabled
@@ -52,6 +67,26 @@ module ::LinkSafety
       return false if TRANSIENT_HTTP_CODES.include?(value)
 
       value.match?(/\Ahttp_[34]\d\d\z/)
+    end
+
+    def self.retryable?(code)
+      value = code.to_s
+      return false if NON_RETRYABLE_CODES.include?(value)
+      return true if TRANSIENT_HTTP_CODES.include?(value)
+      return true if value.match?(/\Ahttp_5\d\d\z/)
+
+      %w[
+        validation_budget_exceeded
+        global_lookup_rate_limited
+        security_lookup_rate_limited
+        lookup_budget_unavailable
+        missing_provider_result
+        malformed_response
+        stale_provider_response
+        provider_internal_error
+        response_too_large
+        circuit_open
+      ].include?(value)
     end
   end
 end

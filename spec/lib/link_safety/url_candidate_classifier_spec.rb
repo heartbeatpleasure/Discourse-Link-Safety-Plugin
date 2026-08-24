@@ -6,7 +6,7 @@ RSpec.describe LinkSafety::UrlCandidateClassifier do
   before do
     allow(SiteSetting).to receive(:scheme).and_return("https")
     allow(Discourse).to receive(:store).and_return(store)
-    allow(LinkSafety::TrustedDomains).to receive(:local_host?).and_return(false)
+    allow(LinkSafety::SiteOrigin).to receive(:same?).and_return(false)
   end
 
   it "treats browser-relative Discourse navigation as internal without route-specific rules" do
@@ -59,8 +59,8 @@ RSpec.describe LinkSafety::UrlCandidateClassifier do
   end
 
   it "normalizes backslashes before deciding whether an HTTP target is local" do
-    allow(LinkSafety::TrustedDomains).to receive(:local_host?) do |host|
-      host == "forum.example"
+    allow(LinkSafety::SiteOrigin).to receive(:same?) do |url|
+      Addressable::URI.parse(url).host == "forum.example"
     end
 
     external = described_class.classify("https://evil.example\\@forum.example/path")
@@ -72,8 +72,8 @@ RSpec.describe LinkSafety::UrlCandidateClassifier do
   end
 
   it "skips an absolute URL on the current Discourse origin" do
-    allow(LinkSafety::TrustedDomains).to receive(:local_host?) do |host|
-      host == "forum.example"
+    allow(LinkSafety::SiteOrigin).to receive(:same?) do |url|
+      Addressable::URI.parse(url).host == "forum.example"
     end
 
     classification = described_class.classify("https://forum.example/t/topic/1")

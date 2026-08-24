@@ -7,8 +7,6 @@ module ::LinkSafety
     def self.trusted?(host)
       normalized = normalize(host)
       return false if normalized.blank?
-      return true if local_host?(normalized)
-
       domains.any? do |domain|
         normalized == domain ||
           (
@@ -59,20 +57,5 @@ module ::LinkSafety
       nil
     end
 
-    def self.local_host?(host)
-      local_hosts.include?(normalize(host))
-    end
-
-    def self.local_hosts
-      hosts = [Discourse.current_hostname]
-      [Discourse.base_url, Discourse.base_url_no_prefix, Discourse.asset_host].compact.each do |url|
-        begin
-          value = url.to_s.start_with?("//") ? "https:#{url}" : url.to_s
-          hosts << Addressable::URI.parse(value).host
-        rescue Addressable::URI::InvalidURIError
-        end
-      end
-      hosts.compact.map { |h| normalize(h) }.compact.uniq
-    end
   end
 end

@@ -5,7 +5,7 @@ module ::LinkSafety
     MAX_RAW_URL_CANDIDATES = 200
 
     def self.validate_model!(
-      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, provider_surface: nil
+      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, private_content: false
     )
       ::LinkSafety::DetectionRecorder.clear_queued!(model)
 
@@ -17,7 +17,7 @@ module ::LinkSafety
           user: user,
           failure_policy: failure_policy,
           extraction_error: extraction_error,
-          provider_surface: provider_surface,
+          private_content: private_content,
         )
       end
 
@@ -41,7 +41,7 @@ module ::LinkSafety
     end
 
     def self.validate_model_without_statistics_capture!(
-      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, provider_surface: nil
+      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, private_content: false
     )
       effective_failure_policy = (failure_policy || SiteSetting.link_safety_failure_policy).to_s
 
@@ -78,15 +78,22 @@ module ::LinkSafety
       end
 
       canonical = outcomes.filter_map { |outcome| outcome.item if outcome.ok? }
-      external = canonical.reject do |item|
-        ::LinkSafety::TrustedDomains.local_host?(item.host) || ::LinkSafety::TrustedDomains.trusted?(item.host)
-      end
+      # Same-origin/generated links were already removed by the candidate
+      # classifier. At this stage only explicitly configured trusted external
+      # domains are excluded from the submission cap.
+      external = canonical.reject { |item| ::LinkSafety::TrustedDomains.trusted?(item.host) }
       if external.length > SiteSetting.link_safety_max_external_urls_per_submission
         model.errors.add(:base, I18n.t("link_safety.errors.too_many_links"))
         return
       end
 
-      results = ::LinkSafety::Checker.check_many(urls, surface: provider_surface || surface, user: user)
+      results = ::LinkSafety::Checker.check_many(
+        urls,
+        surface: surface,
+        user: user,
+        private_content: private_content,
+      )
+      ::LinkSafety::FinalContentGuard.remember_clean_results!(model, results) if defined?(::LinkSafety::FinalContentGuard)
       threats = results.select(&:threat?)
       errors = results.select(&:error?)
 

@@ -6,6 +6,7 @@ module ::LinkSafety
       provider = SiteSetting.link_safety_provider.to_s
       health = ::LinkSafety::HealthRegistry.for(provider)
       control_failures = ::LinkSafety::HealthRegistry.control_failures
+      urlhaus_health = ::LinkSafety::HealthRegistry.for("urlhaus")
       {
         generated_at: Time.zone.now,
         enabled: SiteSetting.link_safety_enabled,
@@ -24,6 +25,20 @@ module ::LinkSafety
         provider_calls_month: ::LinkSafety::DailyStat.where(stat_date: Date.current.beginning_of_month..Date.current, provider: provider).sum(:provider_calls),
         control_failure_count: control_failures.sum { |entry| entry[:count].to_i },
         control_failures: control_failures,
+        urlhaus: {
+          enabled: SiteSetting.link_safety_urlhaus_enabled,
+          configured: SiteSetting.link_safety_urlhaus_auth_key.present?,
+          circuit_open: ::LinkSafety::CircuitBreaker.open?("urlhaus"),
+          circuit_open_until: ::LinkSafety::CircuitBreaker.open_until("urlhaus"),
+          last_success_at: urlhaus_health["last_success_at"].presence,
+          last_failure_at: urlhaus_health["last_failure_at"].presence,
+          last_failure_code: urlhaus_health["last_failure_code"].presence,
+          last_latency_ms: urlhaus_health["last_latency_ms"].presence&.to_i,
+          provider_calls_month:
+            ::LinkSafety::DailyStat
+              .where(stat_date: Date.current.beginning_of_month..Date.current, provider: "urlhaus")
+              .sum(:provider_calls),
+        },
       }
     end
 

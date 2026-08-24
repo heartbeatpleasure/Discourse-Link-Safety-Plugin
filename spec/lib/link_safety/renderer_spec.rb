@@ -4,7 +4,7 @@ RSpec.describe LinkSafety::Renderer do
   before do
     SiteSetting.link_safety_provider = "safe_browsing_v5"
     SiteSetting.link_safety_trusted_domains = ""
-    allow(LinkSafety::TrustedDomains).to receive(:local_host?).and_return(false)
+    allow(LinkSafety::SiteOrigin).to receive(:same?).and_return(false)
     allow(LinkSafety::TrustedDomains).to receive(:trusted?).and_return(false)
     allow(LinkSafety::CacheEntry).to receive(:lookup).and_return(
       double(
@@ -54,6 +54,25 @@ RSpec.describe LinkSafety::Renderer do
     expect(warning.at_css("a")).to be_nil
   end
 
+  it "treats an expired prior threat as unverified in fail-closed rendering" do
+    SiteSetting.link_safety_mode = "enforce"
+    allow(LinkSafety::CacheEntry).to receive(:lookup).and_return(nil)
+    allow(LinkSafety::CacheEntry).to receive(:lookup_any).and_return(
+      double(verdict: "threat", expires_at: 1.minute.ago),
+    )
+
+    output = described_class.render_html(
+      '<p><a href="https://example.com/path">Example</a></p>',
+      failure_policy: :fail_closed,
+    )
+    doc = Nokogiri::HTML5.fragment(output)
+
+    expect(doc.at_css("a")["href"]).to be_nil
+    expect(doc.at_css(".link-safety-warning").text).to eq(
+      I18n.t("link_safety.rendered_warning_unverified"),
+    )
+  end
+
   it "fails closed for external links if Enforce rendering raises internally" do
     SiteSetting.link_safety_mode = "enforce"
     allow(LinkSafety::Canonicalizer).to receive(:call).and_raise(StandardError, "boom")
@@ -81,8 +100,8 @@ RSpec.describe LinkSafety::Renderer do
 
   it "leaves an absolute current-site link alone in enforce mode" do
     SiteSetting.link_safety_mode = "enforce"
-    allow(LinkSafety::TrustedDomains).to receive(:local_host?) do |host|
-      host == "forum.example"
+    allow(LinkSafety::SiteOrigin).to receive(:same?) do |url|
+      Addressable::URI.parse(url).host == "forum.example"
     end
 
     html = '<p><a href="https://forum.example/t/topic/1">Topic</a></p>'

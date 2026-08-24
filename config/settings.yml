@@ -124,6 +124,13 @@ plugins:
     max: 5000
     client: false
 
+  link_safety_lookup_budget_security_reserve_percent:
+    default: 10
+    type: integer
+    min: 0
+    max: 50
+    client: false
+
   link_safety_web_risk_private_surfaces:
     default: false
     client: false
@@ -144,6 +151,24 @@ plugins:
 
   link_safety_urlhaus_private_surfaces:
     default: false
+    client: false
+
+  link_safety_revalidation_enabled:
+    default: true
+    client: false
+
+  link_safety_revalidation_interval_hours:
+    default: 24
+    type: integer
+    min: 1
+    max: 168
+    client: false
+
+  link_safety_revalidation_targets_per_hour:
+    default: 10
+    type: integer
+    min: 10
+    max: 1000
     client: false
 
   link_safety_detection_retention_days:

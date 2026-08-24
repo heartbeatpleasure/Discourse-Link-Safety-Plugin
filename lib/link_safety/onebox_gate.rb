@@ -1,41 +1,72 @@
 # frozen_string_literal: true
 
+require "set"
+
 module ::LinkSafety
   class OneboxGate
-    def self.apply!(doc)
+    def self.apply!(doc, target: nil)
       return doc if doc.blank? || SiteSetting.link_safety_mode != "enforce"
+      verification_needed = false
+      allowed_once = target ? ::LinkSafety::FinalContentGuard.peek_allowance(target) : Set.new
+
       doc.css("a.onebox[href], a.inline-onebox-loading[href]").each do |anchor|
         candidate = ::LinkSafety::UrlCandidateClassifier.classify(anchor["href"])
         next unless candidate.checkable?
 
         item = ::LinkSafety::Canonicalizer.call(candidate.url)
         next unless item
-        next if ::LinkSafety::TrustedDomains.local_host?(item.host) || ::LinkSafety::TrustedDomains.trusted?(item.host)
-        entry = ::LinkSafety::CacheEntry.lookup(provider: SiteSetting.link_safety_provider, fingerprint: item.fingerprint, legacy_fingerprint: item.legacy_fingerprint)
-        next unless entry && %w[error threat].include?(entry.verdict)
+        next if ::LinkSafety::TrustedDomains.trusted?(item.host)
+        next if allowed_once.include?(item.fingerprint)
 
-        classes = anchor["class"].to_s.split
-        classes -= %w[onebox inline-onebox-loading]
-        anchor["class"] = classes.join(" ")
+        entry = ::LinkSafety::CacheEntry.lookup(
+          provider: SiteSetting.link_safety_provider,
+          fingerprint: item.fingerprint,
+          legacy_fingerprint: item.legacy_fingerprint,
+        )
+
+        if entry.nil?
+          verification_needed = true
+          stale = ::LinkSafety::CacheEntry.lookup_any(
+            provider: SiteSetting.link_safety_provider,
+            fingerprint: item.fingerprint,
+            legacy_fingerprint: item.legacy_fingerprint,
+          )
+          # A provider-backed threat is no longer current after expiry, so
+          # fail-open navigation may resume according to policy. Do not,
+          # however, make the server fetch/onebox a previously malicious target
+          # until a fresh verification has cleared that historical state.
+          if stale&.verdict == "threat" || SiteSetting.link_safety_failure_policy.to_s == "fail_closed"
+            strip_onebox_marker!(anchor)
+          end
+        elsif %w[error threat].include?(entry.verdict)
+          verification_needed ||= entry.verdict == "error" && ::LinkSafety::VerificationPolicy.retryable?(entry.error_code)
+          # Never initiate a remote onebox fetch for a known threat or an
+          # unverified/error result, even when normal posting is fail-open.
+          strip_onebox_marker!(anchor)
+        end
       end
+
+      ::LinkSafety::FinalContentVerifier.schedule(target) if verification_needed && target
       doc
     rescue => e
       Rails.logger.warn("[LinkSafety] onebox gate failed class=#{e.class.name}")
       ::LinkSafety::HealthRegistry.control_failure!(component: :onebox_gate, code: e.class.name)
-      # Prevent an Enforce-mode control failure from falling back to a remote
-      # onebox fetch. Only onebox-loading classes on external HTTP(S) targets
-      # are stripped; ordinary/internal links are left alone.
       fail_closed!(doc)
     end
+
+    def self.strip_onebox_marker!(anchor)
+      classes = anchor["class"].to_s.split
+      classes -= %w[onebox inline-onebox-loading]
+      anchor["class"] = classes.join(" ")
+    end
+    private_class_method :strip_onebox_marker!
 
     def self.fail_closed!(doc)
       doc.css("a.onebox[href], a.inline-onebox-loading[href]").each do |anchor|
         candidate = ::LinkSafety::UrlCandidateClassifier.classify(anchor["href"])
         next unless candidate.checkable?
 
-        classes = anchor["class"].to_s.split
-        classes -= %w[onebox inline-onebox-loading]
-        anchor["class"] = classes.join(" ")
+        strip_onebox_marker!(anchor)
       end
       doc
     rescue StandardError

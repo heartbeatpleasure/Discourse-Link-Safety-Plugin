@@ -14,7 +14,7 @@ module ::LinkSafety
       return if mode == "threshold_only" && count < threshold_count
 
       marker = "link-safety-threshold:#{detection.id}"
-      redis_key = "link_safety:user_note:#{user.id}"
+      redis_key = ::LinkSafety::RedisNamespace.key("user_note", user.id)
       return if Discourse.redis.get(redis_key).present? && mode == "threshold_only"
 
       raw = I18n.t("link_safety.user_note", count: count, hours: threshold_hours, threat: Array(detection.threat_types).first || "unknown")

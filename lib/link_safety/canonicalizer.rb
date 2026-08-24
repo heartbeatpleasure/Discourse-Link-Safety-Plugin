@@ -12,7 +12,7 @@ module ::LinkSafety
     MAX_UNESCAPE_PASSES = 64
     NAT64_WELL_KNOWN_PREFIX = IPAddr.new("64:ff9b::/96")
 
-    CanonicalUrl = Data.define(:original, :canonical, :host, :fingerprint, :legacy_fingerprint)
+    CanonicalUrl = Data.define(:original, :canonical, :full_url, :host, :fingerprint, :legacy_fingerprint)
     Outcome = Data.define(:status, :item, :error_code) do
       def ok? = status.to_s == "ok"
       def ignored? = status.to_s == "ignored"
@@ -78,15 +78,34 @@ module ::LinkSafety
       path = canonical_path(raw_path)
       query = uri.query.nil? ? nil : restore_decoded_hashes(uri.query.to_s)
 
-      canonical = "#{scheme}://#{safe_browsing_escape(host)}#{safe_browsing_escape(path)}"
-      canonical += "?#{safe_browsing_escape(query)}" unless query.nil?
+      escaped_host = safe_browsing_escape(host)
+      escaped_path = safe_browsing_escape(path)
+      escaped_query = query.nil? ? nil : safe_browsing_escape(query)
+
+      # Safe Browsing hash expressions intentionally discard scheme/userinfo/port
+      # after URL normalization. Full-URL providers must instead receive the
+      # actual normalized navigation target, including a non-default port. Keep
+      # both representations so the two provider families cannot accidentally
+      # share the wrong canonical form. Userinfo is deliberately not forwarded.
+      canonical = "#{scheme}://#{escaped_host}#{escaped_path}"
+      canonical += "?#{escaped_query}" unless escaped_query.nil?
+
+      port = uri.port
+      default_port = scheme == "https" ? 443 : 80
+      port_suffix = port && port != default_port ? ":#{port}" : ""
+      full_url = "#{scheme}://#{escaped_host}#{port_suffix}#{escaped_path}"
+      full_url += "?#{escaped_query}" unless escaped_query.nil?
 
       item = CanonicalUrl.new(
         original: @original,
         canonical: canonical,
-        host: safe_browsing_escape(host),
-        fingerprint: ::LinkSafety::Fingerprint.for_url(canonical),
-        legacy_fingerprint: Digest::SHA256.hexdigest(canonical),
+        full_url: full_url,
+        host: escaped_host,
+        fingerprint: ::LinkSafety::Fingerprint.for_url(full_url),
+        # Port-insensitive legacy cache state is safe to reuse only when this
+        # URL did not actually contain a non-default port. For such URLs the
+        # current HMAC fingerprint is unchanged as well.
+        legacy_fingerprint: full_url == canonical ? Digest::SHA256.hexdigest(canonical) : nil,
       )
       Outcome.new(status: "ok", item: item, error_code: nil)
     rescue CanonicalizationError => e
@@ -120,11 +139,13 @@ module ::LinkSafety
       paths << path
       paths << "/"
 
-      # Add at most four directory prefixes at actual slash boundaries. Do not
-      # manufacture a trailing slash after a filename (e.g. /1/2.html/).
+      # Safe Browsing v5 permits four path prefixes including the root `/`.
+      # Root is already present above, so add at most three more directory
+      # prefixes at actual slash boundaries. Do not manufacture a trailing slash
+      # after a filename (e.g. /1/2.html/).
       slash_positions = []
       path.each_char.with_index { |ch, idx| slash_positions << idx if ch == "/" && idx.positive? }
-      slash_positions.first(4).each { |idx| paths << path[0..idx] }
+      slash_positions.first(3).each { |idx| paths << path[0..idx] }
 
       expressions = hosts.product(paths.uniq.first(6)).map { |h, p| "#{h}#{p}" }.uniq
       raise CanonicalizationError, :canonicalization_failure if expressions.empty?

@@ -33,6 +33,23 @@ export default class AdminPluginsLinkSafetyHealthController extends Controller {
       circuit_open_until_display: formatLinkSafetyDateTime(
         data.circuit_open_until
       ),
+      urlhaus: data.urlhaus
+        ? {
+            ...data.urlhaus,
+            last_failure_code_display: data.urlhaus.last_failure_code
+              ? failureCodeLabel(data.urlhaus.last_failure_code)
+              : "—",
+            last_success_at_display: formatLinkSafetyDateTime(
+              data.urlhaus.last_success_at
+            ),
+            last_failure_at_display: formatLinkSafetyDateTime(
+              data.urlhaus.last_failure_at
+            ),
+            circuit_open_until_display: formatLinkSafetyDateTime(
+              data.urlhaus.circuit_open_until
+            ),
+          }
+        : null,
       control_failures: (data.control_failures || []).map((entry) => ({
         ...entry,
         component_display: failureCodeLabel(entry.component),

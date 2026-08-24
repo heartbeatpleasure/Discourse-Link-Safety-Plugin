@@ -39,4 +39,31 @@ RSpec.describe LinkSafety::RetryContext do
 
     expect(resolved).to eq(actor)
   end
+  it "uses updated_at as a stable content version for non-post targets" do
+    timestamp = Time.utc(2026, 8, 24, 21, 42, 13, 123_456)
+    target = double("target", updated_at: timestamp)
+
+    expect(described_class.content_version_for(target)).to eq(timestamp.iso8601(6))
+  end
+
+  it "reloads persisted content before accepting a provider response" do
+    group = Group.new(name: "security-group", bio_raw: "before")
+    allow(group).to receive(:persisted?).and_return(true)
+    allow(group).to receive(:reload) do
+      group.bio_raw = "after"
+      group
+    end
+    old_hash = described_class.content_hash("before")
+
+    expect(described_class.reload_matches_content?(group, old_hash)).to eq(false)
+  end
+
+  it "binds profile allowances/revalidation to both website and bio content" do
+    profile = UserProfile.new(user: author, website: "https://example.com", bio_raw: "first")
+    first = described_class.content_hash_for(profile)
+    profile.bio_raw = "second"
+
+    expect(described_class.content_hash_for(profile)).not_to eq(first)
+  end
+
 end

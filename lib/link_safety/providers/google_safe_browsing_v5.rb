@@ -206,18 +206,34 @@ module ::LinkSafety
         duration = parse_duration(payload["cacheDuration"])
         return if duration.nil?
 
-        full_hashes = Array(payload["fullHashes"]).filter_map do |entry|
-          next unless entry.is_a?(Hash)
-          full_hash = decode_bytes(entry["fullHash"])
-          next unless full_hash&.bytesize == 32
+        raw_full_hashes = payload.key?("fullHashes") ? payload["fullHashes"] : []
+        raise ArgumentError, "fullHashes must be an array" unless raw_full_hashes.is_a?(Array)
 
-          details = Array(entry["fullHashDetails"]).filter_map do |detail|
-            next unless detail.is_a?(Hash)
+        full_hashes = raw_full_hashes.map do |entry|
+          raise ArgumentError, "fullHash entry must be an object" unless entry.is_a?(Hash)
+          full_hash = decode_bytes(entry["fullHash"])
+          raise ArgumentError, "invalid fullHash" unless full_hash&.bytesize == 32
+
+          raw_details = entry.key?("fullHashDetails") ? entry["fullHashDetails"] : []
+          raise ArgumentError, "fullHashDetails must be an array" unless raw_details.is_a?(Array)
+
+          details = raw_details.filter_map do |detail|
+            raise ArgumentError, "fullHashDetail must be an object" unless detail.is_a?(Hash)
+            raise ArgumentError, "missing threatType" unless detail.key?("threatType")
+
             threat_type = threat_type_number(detail["threatType"])
-            attributes = Array(detail["attributes"]).filter_map { |attribute| threat_attribute_number(attribute) }
-            # If any JSON attribute was unknown, disregard the entire detail.
-            next if Array(detail["attributes"]).length != attributes.length
+            # Unknown future threat types are explicitly ignored for forward
+            # compatibility; malformed structure is not silently converted to a
+            # clean provider response.
             next unless threat_type
+
+            raw_attributes = detail.key?("attributes") ? detail["attributes"] : []
+            raise ArgumentError, "attributes must be an array" unless raw_attributes.is_a?(Array)
+            attributes = raw_attributes.filter_map { |attribute| threat_attribute_number(attribute) }
+            # Unknown future attributes make this detail non-enforceable, as
+            # required by Safe Browsing's forward-compatibility contract.
+            next if raw_attributes.length != attributes.length
+
             { threat_type: threat_type, attributes: attributes }
           end
 
@@ -243,7 +259,7 @@ module ::LinkSafety
         end
 
         return if cache_duration.nil?
-        ParsedPayload.new(full_hashes: full_hashes.compact, cache_duration: cache_duration)
+        ParsedPayload.new(full_hashes: full_hashes, cache_duration: cache_duration)
       end
 
       def parse_protobuf_full_hash(bytes)
@@ -262,7 +278,7 @@ module ::LinkSafety
           end
         end
 
-        return unless full_hash&.bytesize == 32
+        raise ProtobufDecodeError, "invalid full_hash length" unless full_hash&.bytesize == 32
         { full_hash: full_hash, details: details }
       end
 

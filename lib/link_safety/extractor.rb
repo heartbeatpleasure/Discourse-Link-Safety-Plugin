@@ -121,6 +121,31 @@ module ::LinkSafety
       Extraction.new(urls: [], error_code: "extractor_failure")
     end
 
+    # Security extraction for the final persisted DOM. Unlike normal Discourse
+    # link statistics this intentionally includes quote/plugin-generated links
+    # and Link Safety's remembered original href for an already neutralized link.
+    def self.final_document_result(doc_or_html)
+      doc =
+        if doc_or_html.respond_to?(:css)
+          doc_or_html
+        else
+          Nokogiri::HTML5.fragment(doc_or_html.to_s)
+        end
+
+      urls = doc.css("a[href]").filter_map { |a| a["href"].presence }
+      urls.concat(
+        doc.css("a[#{::LinkSafety::Renderer::ORIGINAL_HREF_ATTRIBUTE}]").filter_map do |a|
+          a[::LinkSafety::Renderer::ORIGINAL_HREF_ATTRIBUTE].presence
+        end,
+      )
+      urls.concat(doc.css("[data-onebox-src]").filter_map { |node| node["data-onebox-src"].presence })
+      Extraction.new(urls: ::LinkSafety::UrlCandidateClassifier.filter(urls), error_code: nil)
+    rescue => e
+      Rails.logger.warn("[LinkSafety] final DOM link extraction failed class=#{e.class.name}")
+      ::LinkSafety::HealthRegistry.control_failure!(component: :extractor, code: e.class.name)
+      Extraction.new(urls: [], error_code: "extractor_failure")
+    end
+
     # Backwards-compatible array helpers for non-validation callers such as
     # pending scheduling. Security-sensitive validation uses the result methods
     # above so extraction failures cannot silently become an empty URL list.

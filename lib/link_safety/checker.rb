@@ -4,30 +4,60 @@ require "digest"
 
 module ::LinkSafety
   class Checker
-    def self.check_many(urls, surface:, force: false, bypass_circuit: false, bypass_lookup_budget: false, user: nil)
+    def self.check_many(
+      urls,
+      surface:,
+      force: false,
+      bypass_circuit: false,
+      bypass_lookup_budget: false,
+      bypass_trusted: false,
+      user: nil,
+      private_content: false,
+      priority: :normal
+    )
       new(
-        surface: surface, force: force, bypass_circuit: bypass_circuit,
-        bypass_lookup_budget: bypass_lookup_budget, user: user,
+        surface: surface,
+        force: force,
+        bypass_circuit: bypass_circuit,
+        bypass_lookup_budget: bypass_lookup_budget,
+        bypass_trusted: bypass_trusted,
+        user: user,
+        private_content: private_content,
+        priority: priority,
       ).check_many(urls)
     end
 
-    def initialize(surface:, force: false, bypass_circuit: false, bypass_lookup_budget: false, user: nil)
+    def initialize(
+      surface:,
+      force: false,
+      bypass_circuit: false,
+      bypass_lookup_budget: false,
+      bypass_trusted: false,
+      user: nil,
+      private_content: false,
+      priority: :normal
+    )
       @surface = surface.to_sym
       @force = force
       @bypass_circuit = bypass_circuit
       @bypass_lookup_budget = bypass_lookup_budget
+      @bypass_trusted = bypass_trusted
       @provider_name = SiteSetting.link_safety_provider.to_s
       @user = user
+      @private_content = !!private_content
+      @priority = priority.to_s.to_sym
     end
 
     def check_many(urls)
-      outcomes = Array(urls).compact.uniq.map { |url| [url, ::LinkSafety::Canonicalizer.analyze(url)] }
+      # Keep every direct Checker caller behind the same browser-aware candidate
+      # classifier. This prevents a future caller from accidentally feeding a
+      # same-origin/generated Discourse href straight into canonicalization.
+      candidates = ::LinkSafety::UrlCandidateClassifier.filter(urls)
+      outcomes = candidates.map { |url| [url, ::LinkSafety::Canonicalizer.analyze(url)] }
       results = outcomes.filter_map do |url, outcome|
         unverified_result(url, outcome.error_code) if outcome.error?
       end
-      canonical = outcomes.filter_map { |_url, outcome| outcome.item if outcome.ok? }
-      canonical.reject! { |item| ::LinkSafety::TrustedDomains.local_host?(item.host) }
-      canonical = canonical.uniq(&:fingerprint)
+      canonical = outcomes.filter_map { |_url, outcome| outcome.item if outcome.ok? }.uniq(&:fingerprint)
 
       check_count = canonical.length + results.length
       ::LinkSafety::Statistics.bump!(@provider_name, checks: check_count) if check_count.positive?
@@ -36,14 +66,24 @@ module ::LinkSafety
 
       unresolved = []
       canonical.each do |item|
-        if ::LinkSafety::TrustedDomains.trusted?(item.host)
+        if !@bypass_trusted && ::LinkSafety::TrustedDomains.trusted?(item.host)
           ::LinkSafety::Statistics.bump!(@provider_name, trusted_skips: 1)
-          results << build_result(item, status: "trusted", threats: [], expires_at: 100.years.from_now, source: "trusted")
+          results << build_result(
+            item,
+            status: "trusted",
+            threats: [],
+            expires_at: 100.years.from_now,
+            source: "trusted",
+          )
           next
         end
 
         unless @force
-          cached = ::LinkSafety::CacheEntry.lookup(provider: @provider_name, fingerprint: item.fingerprint, legacy_fingerprint: item.legacy_fingerprint)
+          cached = ::LinkSafety::CacheEntry.lookup(
+            provider: @provider_name,
+            fingerprint: item.fingerprint,
+            legacy_fingerprint: item.legacy_fingerprint,
+          )
           if cached
             ::LinkSafety::Statistics.bump!(@provider_name, cache_hits: 1)
             results << result_from_cache(item, cached)
@@ -59,28 +99,12 @@ module ::LinkSafety
       return results if unresolved.empty?
 
       if !@bypass_circuit && ::LinkSafety::CircuitBreaker.open?(@provider_name)
-        unresolved.each do |item|
-          results << persist_response(item, error_response("circuit_open"))
-        end
+        unresolved.each { |item| results << persist_response(item, error_response("circuit_open")) }
         return results
       end
 
-      unless @bypass_lookup_budget
-        lookup_budget = ::LinkSafety::LookupBudget.reserve(user: @user, units: unresolved.length)
-        unless lookup_budget.allowed?
-          ::LinkSafety::Statistics.bump!(@provider_name, errors: unresolved.length)
-          unresolved.each do |item|
-            results << build_result(
-              item,
-              status: "error",
-              threats: [],
-              expires_at: Time.zone.now + 1.minute,
-              error_code: lookup_budget.error_code,
-              source: "lookup_budget",
-            )
-          end
-          return results
-        end
+      unless reserve_lookup_budget(unresolved.length, results, unresolved)
+        return results
       end
 
       primary_provider = provider
@@ -88,8 +112,12 @@ module ::LinkSafety
       provider_results = primary_provider.check_many(unresolved, deadline: deadline)
       unresolved.each do |item|
         response = provider_results[item.fingerprint] || error_response("missing_provider_result")
-        result = persist_response(item, response)
-        result = apply_urlhaus(item, result, deadline: deadline)
+        result =
+          if SiteSetting.link_safety_urlhaus_enabled
+            apply_urlhaus(item, response, deadline: deadline)
+          else
+            persist_response(item, response)
+          end
         results << result
       end
       results
@@ -110,8 +138,12 @@ module ::LinkSafety
       return items unless @provider_name == "web_risk_lookup"
 
       items.select do |item|
-        allowed, error_code = ::LinkSafety::NetworkPolicy.web_risk_allowed?(item, surface: @surface)
-        if !allowed
+        allowed, error_code = ::LinkSafety::NetworkPolicy.web_risk_allowed?(
+          item,
+          surface: @surface,
+          private_content: @private_content,
+        )
+        unless allowed
           ::LinkSafety::Statistics.bump!(@provider_name, errors: 1)
           results << build_result(
             item,
@@ -126,15 +158,98 @@ module ::LinkSafety
       end
     end
 
-    def apply_urlhaus(item, result, deadline:)
-      return result unless SiteSetting.link_safety_urlhaus_enabled
-      return result if result.threat? || result.error?
-      return result unless ::LinkSafety::NetworkPolicy.urlhaus_allowed?(item, surface: @surface)
+    def reserve_lookup_budget(units, results, items)
+      return true if @bypass_lookup_budget
 
-      threat = ::LinkSafety::Providers::Urlhaus.new.check(item, deadline: deadline)
-      return result if threat.blank?
-      response = Providers::Base::Response.new(status: "threat", threat_types: (result.threat_types + [threat]).uniq, expires_at: [result.expires_at, 12.hours.from_now].compact.min, error_code: nil, latency_ms: nil, provider_calls: 0)
-      persist_response(item, response, source_override: "urlhaus", result_provider: "urlhaus")
+      lookup_budget = ::LinkSafety::LookupBudget.reserve(
+        user: @user,
+        units: units,
+        priority: @priority,
+      )
+      return true if lookup_budget.allowed?
+
+      ::LinkSafety::Statistics.bump!(@provider_name, errors: items.length)
+      items.each do |item|
+        results << build_result(
+          item,
+          status: "error",
+          threats: [],
+          expires_at: Time.zone.now + 1.minute,
+          error_code: lookup_budget.error_code,
+          source: "lookup_budget",
+        )
+      end
+      false
+    end
+
+    def apply_urlhaus(item, primary_response, deadline:)
+      # A primary threat/error is already decisive. Persist it once and avoid an
+      # unnecessary full-URL supplemental request.
+      unless primary_response.status.to_s == "clean"
+        return persist_response(item, primary_response)
+      end
+
+      allowed, _error_code = ::LinkSafety::NetworkPolicy.urlhaus_allowed?(
+        item,
+        surface: @surface,
+        private_content: @private_content,
+      )
+      # Supplemental URLhaus must never make an otherwise privacy-preserving
+      # primary provider unusable merely because full-URL sharing is disabled.
+      # If URLhaus already supplied a still-valid positive verdict before that
+      # privacy policy changed, retain it until its provider-backed expiry; a
+      # clean primary verdict is not evidence that URLhaus itself cleared it.
+      unless allowed
+        current = ::LinkSafety::CacheEntry.lookup(
+          provider: @provider_name,
+          fingerprint: item.fingerprint,
+          legacy_fingerprint: item.legacy_fingerprint,
+        )
+        source = current&.source_provider.presence || current&.provider
+        return result_from_cache(item, current) if current&.verdict == "threat" && source == "urlhaus"
+
+        return persist_response(item, primary_response)
+      end
+
+      unless @bypass_lookup_budget
+        budget = ::LinkSafety::LookupBudget.reserve(user: @user, units: 1, priority: @priority)
+        unless budget.allowed?
+          return persist_response(
+            item,
+            error_response(budget.error_code),
+            source_override: "lookup_budget",
+          )
+        end
+      end
+
+      response = ::LinkSafety::Providers::Urlhaus.new.check(
+        item,
+        deadline: deadline,
+        bypass_circuit: @bypass_circuit,
+      )
+
+      if response.status == "threat"
+        # A positive URLhaus verdict has its own validity window. Never cap it
+        # by a Web Risk clean response whose documented negative TTL is zero.
+        persist_response(item, response, source_override: "urlhaus", result_provider: "urlhaus")
+      elsif response.status == "error"
+        persist_response(item, response, source_override: "urlhaus", result_provider: "urlhaus")
+      else
+        # Clean supplemental results can only shorten, never extend, the primary
+        # provider's clean lifetime. Persist only the combined final verdict so
+        # a transient URLhaus failure can never erase a still-valid prior threat
+        # during the gap between primary and supplemental calls.
+        expiries = [primary_response.expires_at, response.expires_at].compact
+        combined = Providers::Base::Response.new(
+          status: "clean",
+          threat_types: [],
+          expires_at: expiries.min,
+          error_code: nil,
+          latency_ms: response.latency_ms,
+          provider_calls: response.provider_calls,
+        )
+        persist_response(item, combined)
+      end
     end
 
     def persist_response(item, response, source_override: nil, result_provider: nil)
@@ -142,9 +257,32 @@ module ::LinkSafety
       expiry = response.expires_at || 1.minute.from_now
       now = Time.zone.now
 
-      # Some providers (notably Web Risk Lookup for an empty result) do not
-      # define a negative-cache lifetime. An already-expired response is a valid
-      # result for this request, but must not be inserted as reusable cache data.
+      # A refresh failure must not erase a prior positive verdict row. Its
+      # provider-backed expiry is never extended; renderers may use the expired
+      # row only as historical evidence to stay generically fail-closed while a
+      # fresh verdict is unavailable.
+      if response.status.to_s == "error"
+        current = ::LinkSafety::CacheEntry.lookup_any(
+          provider: @provider_name,
+          fingerprint: item.fingerprint,
+          legacy_fingerprint: item.legacy_fingerprint,
+        )
+        if current&.verdict == "threat"
+          return build_result(
+            item,
+            status: response.status,
+            threats: response.threat_types,
+            expires_at: response.expires_at,
+            error_code: response.error_code,
+            source: source_name,
+            provider: result_provider || @provider_name,
+          )
+        end
+      end
+
+      # Web Risk Lookup has no documented reusable negative-cache lifetime.
+      # An already-expired result is valid for this request but must not become
+      # reusable cache state.
       if expiry > now
         ::LinkSafety::CacheEntry.upsert(
           {
@@ -162,12 +300,38 @@ module ::LinkSafety
           },
           unique_by: :idx_link_safety_cache_provider_url,
         )
+      elsif response.status.to_s == "clean"
+        # Web Risk Lookup deliberately has no reusable negative-cache lifetime.
+        # A fresh clean verdict must nevertheless clear an older threat/error
+        # row for this exact URL; otherwise periodic revalidation could prove a
+        # link clean while serializers/renderers keep seeing the stale row.
+        fingerprints = [item.fingerprint, item.legacy_fingerprint].compact.uniq
+        ::LinkSafety::CacheEntry.where(
+          provider: @provider_name,
+          url_fingerprint: fingerprints,
+        ).delete_all
       end
-      build_result(item, status: response.status, threats: response.threat_types, expires_at: response.expires_at, error_code: response.error_code, source: source_name, provider: result_provider || @provider_name)
+      build_result(
+        item,
+        status: response.status,
+        threats: response.threat_types,
+        expires_at: response.expires_at,
+        error_code: response.error_code,
+        source: source_name,
+        provider: result_provider || @provider_name,
+      )
     rescue => e
       Rails.logger.warn("[LinkSafety] cache write failed class=#{e.class.name}")
       ::LinkSafety::HealthRegistry.control_failure!(component: :cache_write, code: e.class.name)
-      build_result(item, status: response.status, threats: response.threat_types, expires_at: response.expires_at, error_code: response.error_code, source: source_name, provider: result_provider || @provider_name)
+      build_result(
+        item,
+        status: response.status,
+        threats: response.threat_types,
+        expires_at: response.expires_at,
+        error_code: response.error_code,
+        source: source_name,
+        provider: result_provider || @provider_name,
+      )
     end
 
     def result_from_cache(item, cached)
@@ -186,7 +350,7 @@ module ::LinkSafety
     def build_result(item, status:, threats:, expires_at:, error_code: nil, source:, provider: @provider_name)
       ::LinkSafety::Result.new(
         url: item.original,
-        canonical_url: item.canonical,
+        canonical_url: item.full_url,
         fingerprint: item.fingerprint,
         host: item.host,
         status: status,

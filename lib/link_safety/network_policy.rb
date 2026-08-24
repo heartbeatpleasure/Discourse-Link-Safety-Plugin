@@ -33,6 +33,10 @@ module ::LinkSafety
       PRIVATE_SURFACES.include?(surface.to_s.to_sym)
     end
 
+    def self.private_content?(surface:, private_content: false)
+      !!private_content || private_surface?(surface)
+    end
+
     def self.private_or_special_host?(host)
       value = host.to_s.downcase.gsub(/\A\[|\]\z/, "").sub(/\.$/, "")
       return true if value.blank?
@@ -46,24 +50,30 @@ module ::LinkSafety
     end
 
     # Web Risk Lookup sends the complete URL to Google. Privacy-sensitive
-    # surfaces and non-public network locations require explicit opt-in.
-    def self.web_risk_allowed?(item, surface:)
-      if private_surface?(surface) && !SiteSetting.link_safety_web_risk_private_surfaces
+    # content and non-public network locations require explicit opt-in.
+    def self.web_risk_allowed?(item, surface:, private_content: false)
+      if private_content?(surface: surface, private_content: private_content) &&
+           !SiteSetting.link_safety_web_risk_private_surfaces
         return [false, "private_surface_lookup_disabled"]
       end
-      if private_or_special_host?(item.host) && !SiteSetting.link_safety_full_url_providers_allow_private_networks
+      if private_or_special_host?(item.host) &&
+           !SiteSetting.link_safety_full_url_providers_allow_private_networks
         return [false, "private_network_full_url_provider_disabled"]
       end
       [true, nil]
     end
 
-    def self.urlhaus_allowed?(item, surface:)
-      if private_surface?(surface) && !SiteSetting.link_safety_urlhaus_private_surfaces
-        return false
+    def self.urlhaus_allowed?(item, surface:, private_content: false)
+      if private_content?(surface: surface, private_content: private_content) &&
+           !SiteSetting.link_safety_urlhaus_private_surfaces
+        return [false, "private_surface_lookup_disabled"]
       end
-      return false if private_or_special_host?(item.host) && !SiteSetting.link_safety_full_url_providers_allow_private_networks
+      if private_or_special_host?(item.host) &&
+           !SiteSetting.link_safety_full_url_providers_allow_private_networks
+        return [false, "private_network_full_url_provider_disabled"]
+      end
 
-      true
+      [true, nil]
     end
   end
 end

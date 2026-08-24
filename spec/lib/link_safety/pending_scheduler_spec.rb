@@ -7,31 +7,55 @@ RSpec.describe LinkSafety::PendingScheduler do
     allow(LinkSafety::SurfacePolicy).to receive(:enabled?).and_return(true)
   end
 
-  it "uses the post editor when recooking content for pending detection" do
+  it "carries immutable actor/content context into a post retry" do
     editor = Fabricate(:user)
-    post = double(
-      "post",
-      raw: "raw",
-      topic_id: 42,
-      id: 99,
-      topic: double("topic", private_message?: false),
-    )
+    post = double("post", id: 99)
     extraction = LinkSafety::Extractor::Extraction.new(urls: [], error_code: nil)
+    context = LinkSafety::TargetContext::Context.new(
+      surface: :public_post, actor: editor, private_content: false, extraction: extraction,
+    )
 
-    allow(LinkSafety::ActorResolver).to receive(:for_post).with(post).and_return(editor)
-    allow(LinkSafety::Extractor).to receive(:post_raw_result).and_return(extraction)
+    allow(LinkSafety::TargetContext).to receive(:for).with(post).and_return(context)
+    allow(LinkSafety::RetryContext).to receive(:content_hash_for).with(post).and_return("hash")
+    allow(LinkSafety::RetryContext).to receive(:content_version_for).with(post).and_return(7)
     allow(described_class).to receive(:schedule)
 
     described_class.for_post(post)
 
-    expect(LinkSafety::Extractor).to have_received(:post_raw_result).with("raw", 42, user: editor)
     expect(described_class).to have_received(:schedule).with(
       target_type: "Post",
       target_id: 99,
       urls: [],
       surface: :public_post,
       actor_id: editor.id,
-      content_hash: LinkSafety::RetryContext.content_hash("raw"),
+      content_hash: "hash",
+      content_version: 7,
+    )
+  end
+
+  it "carries a chat updated_at content version into a retry" do
+    editor = Fabricate(:user)
+    message = double("chat message", id: 77)
+    extraction = LinkSafety::Extractor::Extraction.new(urls: [], error_code: nil)
+    context = LinkSafety::TargetContext::Context.new(
+      surface: :chat_public, actor: editor, private_content: false, extraction: extraction,
+    )
+
+    allow(LinkSafety::TargetContext).to receive(:for).with(message).and_return(context)
+    allow(LinkSafety::RetryContext).to receive(:content_hash_for).with(message).and_return("chat-hash")
+    allow(LinkSafety::RetryContext).to receive(:content_version_for).with(message).and_return("2026-08-24T21:00:00.000000Z")
+    allow(described_class).to receive(:schedule)
+
+    described_class.for_chat_message(message)
+
+    expect(described_class).to have_received(:schedule).with(
+      target_type: "Chat::Message",
+      target_id: 77,
+      urls: [],
+      surface: :chat_public,
+      actor_id: editor.id,
+      content_hash: "chat-hash",
+      content_version: "2026-08-24T21:00:00.000000Z",
     )
   end
 

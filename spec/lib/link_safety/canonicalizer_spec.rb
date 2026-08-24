@@ -51,6 +51,25 @@ RSpec.describe LinkSafety::Canonicalizer do
       expect(described_class.call("//example.com/a")&.canonical).to eq("http://example.com/a")
     end
 
+    it "preserves non-default ports for full-URL providers while Safe Browsing canonicalization discards them" do
+      item = described_class.call("https://example.com:8443/path?x=1")
+      default = described_class.call("https://example.com/path?x=1")
+
+      expect(item.canonical).to eq("https://example.com/path?x=1")
+      expect(item.full_url).to eq("https://example.com:8443/path?x=1")
+      expect(item.fingerprint).not_to eq(default.fingerprint)
+      expect(item.legacy_fingerprint).to be_nil
+    end
+
+    it "normalizes an explicit default port to the same full-URL identity" do
+      explicit = described_class.call("https://example.com:443/path")
+      implicit = described_class.call("https://example.com/path")
+
+      expect(explicit.full_url).to eq("https://example.com/path")
+      expect(explicit.fingerprint).to eq(implicit.fingerprint)
+      expect(explicit.legacy_fingerprint).to eq(implicit.legacy_fingerprint)
+    end
+
     it "keeps canonical IPv6 addresses bracketed" do
       item = described_class.call("http://[2001:0db8:0000:0000:0000:0000:0000:0001]/a")
       expect(item.canonical).to eq("http://[2001:db8::1]/a")
@@ -82,6 +101,20 @@ RSpec.describe LinkSafety::Canonicalizer do
   end
 
   describe ".safe_browsing_expressions" do
+    it "counts root as one of the four Safe Browsing path prefixes" do
+      expressions = described_class.safe_browsing_expressions(
+        "https://example.com/1/2/3/4/5.html",
+      )
+      expect(expressions).to contain_exactly(
+        "example.com/1/2/3/4/5.html",
+        "example.com/",
+        "example.com/1/",
+        "example.com/1/2/",
+        "example.com/1/2/3/",
+      )
+      expect(expressions).not_to include("example.com/1/2/3/4/")
+    end
+
     it "matches the documented a.b.c path/query expression set" do
       expressions = described_class.safe_browsing_expressions("http://a.b.c/1/2.html?param=1")
       expect(expressions).to contain_exactly(

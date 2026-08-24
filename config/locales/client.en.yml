@@ -44,6 +44,7 @@ en:
         circuit_open_until: "Circuit open until"
         provider_configuration: "Provider configuration"
         provider_activity: "Provider activity"
+        urlhaus_provider_activity: "URLhaus supplemental provider"
         recent_activity: "Recent activity"
         security_control_health: "Security control health"
         security_control_health_description: "Recent internal Link Safety failures. These counters expire after the control has remained healthy for one hour and contain no URLs or API keys."

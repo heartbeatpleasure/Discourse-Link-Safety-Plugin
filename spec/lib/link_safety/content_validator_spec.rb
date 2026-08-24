@@ -168,7 +168,7 @@ RSpec.describe LinkSafety::ContentValidator do
     expect(model.errors[:base]).to include(I18n.t("link_safety.errors.unavailable"))
   end
 
-  it "uses a provider-only privacy surface without changing detection attribution" do
+  it "passes privacy context separately without changing detection attribution" do
     SiteSetting.link_safety_mode = "monitor"
     allow(LinkSafety::Checker).to receive(:check_many).and_return([result("threat")])
 
@@ -176,14 +176,15 @@ RSpec.describe LinkSafety::ContentValidator do
       model: model,
       urls: ["https://example.com/"],
       surface: :topic_featured_link,
-      provider_surface: :private_metadata,
+      private_content: true,
       user: user,
     )
 
     expect(LinkSafety::Checker).to have_received(:check_many).with(
       ["https://example.com/"],
-      surface: :private_metadata,
+      surface: :topic_featured_link,
       user: user,
+      private_content: true,
     )
     expect(LinkSafety::DetectionRecorder).to have_received(:record!).with(
       hash_including(surface: :topic_featured_link, action: :monitor_only),

@@ -165,6 +165,26 @@ RSpec.describe LinkSafety::Providers::GoogleSafeBrowsingV5 do
         provider.send(:parse_protobuf_payload, "\x12\x03\x08".b)
       }.to raise_error(described_class::ProtobufDecodeError)
     end
+
+    it "rejects a structurally malformed protobuf full hash instead of dropping it as clean" do
+      body = protobuf_response(
+        full_hashes: [protobuf_full_hash(hash: "short".b, details: [protobuf_detail(threat_type: 1)])],
+      )
+      expect { provider.send(:parse_protobuf_payload, body) }.to raise_error(
+        described_class::ProtobufDecodeError,
+      )
+    end
+
+    it "rejects a structurally malformed JSON full hash instead of dropping it as clean" do
+      response = Net::HTTPOK.new("1.1", "200", "OK")
+      response.body = {
+        cacheDuration: "300s",
+        fullHashes: [{ fullHash: Base64.strict_encode64("short"), fullHashDetails: [] }],
+      }.to_json
+      response["Content-Type"] = "application/json"
+
+      expect { provider.send(:parse_json_payload, response) }.to raise_error(ArgumentError)
+    end
   end
 
   describe "protobuf provider integration" do

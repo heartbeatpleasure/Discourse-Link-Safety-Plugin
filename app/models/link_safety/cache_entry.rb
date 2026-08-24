@@ -16,5 +16,15 @@ module ::LinkSafety
 
       scope.find_by(url_fingerprint: legacy_fingerprint)
     end
+
+    # Used by periodic revalidation, which must be able to inspect an expired
+    # row's checked_at without treating that row as a reusable verdict.
+    def self.lookup_any(provider:, fingerprint:, legacy_fingerprint: nil)
+      scope = where(provider: provider.to_s)
+      entry = scope.find_by(url_fingerprint: fingerprint)
+      return entry if entry || legacy_fingerprint.blank? || legacy_fingerprint.to_s == fingerprint.to_s
+
+      scope.find_by(url_fingerprint: legacy_fingerprint)
+    end
   end
 end

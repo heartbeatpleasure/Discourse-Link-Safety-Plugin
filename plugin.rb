@@ -2,7 +2,7 @@
 
 # name: Discourse-Link-Safety-Plugin
 # about: Checks external links in Discourse content against configurable malicious URL reputation providers.
-# version: 1.3.0
+# version: 1.3.1
 # authors: Chris
 
 add_admin_route "admin.link_safety.title", "linkSafety"
@@ -25,13 +25,17 @@ after_initialize do
   %w[
     lib/link_safety/result.rb
     lib/link_safety/fingerprint.rb
+    lib/link_safety/redis_namespace.rb
     lib/link_safety/canonicalizer.rb
     lib/link_safety/trusted_domains.rb
+    lib/link_safety/site_origin.rb
     lib/link_safety/url_candidate_classifier.rb
     lib/link_safety/actor_resolver.rb
     lib/link_safety/retry_context.rb
     lib/link_safety/extractor.rb
     lib/link_safety/surface_policy.rb
+    lib/link_safety/privacy_context.rb
+    lib/link_safety/target_context.rb
     lib/link_safety/network_policy.rb
     lib/link_safety/lookup_budget.rb
     lib/link_safety/warning_presenter.rb
@@ -47,6 +51,9 @@ after_initialize do
     lib/link_safety/detection_recorder.rb
     lib/link_safety/content_validator.rb
     lib/link_safety/renderer.rb
+    lib/link_safety/metadata_renderer.rb
+    lib/link_safety/final_content_guard.rb
+    lib/link_safety/final_content_verifier.rb
     lib/link_safety/onebox_gate.rb
     lib/link_safety/pending_scheduler.rb
     lib/link_safety/user_note_writer.rb
@@ -78,11 +85,13 @@ after_initialize do
       extraction_error: extraction.error_code,
       surface: surface,
       user: actor,
+      private_content: ::LinkSafety::PrivacyContext.for_post(self),
     )
   end
 
   plugin_instance.add_model_callback("Post", :after_commit) do
     if SiteSetting.link_safety_enabled && (previous_changes.key?("id") || previous_changes.key?("raw"))
+      ::LinkSafety::FinalContentGuard.persist_model_allowance!(self)
       ::LinkSafety::PendingScheduler.for_post(self)
     end
   end
@@ -106,6 +115,7 @@ after_initialize do
       extraction_error: extraction_error,
       surface: :profile,
       user: user,
+      private_content: ::LinkSafety::PrivacyContext.for_user_profile(self),
       failure_policy: SiteSetting.link_safety_profile_fail_open ? :fail_open : :fail_closed,
     )
   end
@@ -120,7 +130,7 @@ after_initialize do
       urls: [featured_link],
       surface: :topic_featured_link,
       user: actor,
-      provider_surface: category&.read_restricted? ? :private_metadata : :topic_featured_link,
+      private_content: ::LinkSafety::PrivacyContext.for_topic(self),
       failure_policy: SiteSetting.link_safety_metadata_fail_open ? :fail_open : :fail_closed,
     )
   end
@@ -136,8 +146,7 @@ after_initialize do
       urls: extraction.urls,
       extraction_error: extraction.error_code,
       surface: :group_profile,
-      provider_surface:
-        visibility_level == ::Group.visibility_levels[:public] ? :group_profile : :private_metadata,
+      private_content: ::LinkSafety::PrivacyContext.for_group(self),
       # Group does not expose the editing user at model-validation time. Do not
       # guess an owner and risk attributing a detection/User Note to the wrong
       # person; group changes still use the global lookup budget.
@@ -167,11 +176,13 @@ after_initialize do
         extraction_error: extraction.error_code,
         surface: surface,
         user: actor,
+        private_content: ::LinkSafety::PrivacyContext.for_chat_message(self),
       )
     end
 
     plugin_instance.add_model_callback("Chat::Message", :after_commit) do
       if SiteSetting.link_safety_enabled && (previous_changes.key?("id") || previous_changes.key?("message"))
+        ::LinkSafety::FinalContentGuard.persist_model_allowance!(self)
         ::LinkSafety::PendingScheduler.for_chat_message(self)
       end
     end
@@ -183,7 +194,7 @@ after_initialize do
     module ::LinkSafety
       module ChatMessageProcessorOneboxGate
         def post_process_oneboxes
-          ::LinkSafety::OneboxGate.apply!(@doc) if SiteSetting.link_safety_enabled
+          ::LinkSafety::OneboxGate.apply!(@doc, target: @model) if SiteSetting.link_safety_enabled
           super
         end
       end
@@ -191,6 +202,112 @@ after_initialize do
     unless ::Chat::MessageProcessor.ancestors.include?(::LinkSafety::ChatMessageProcessorOneboxGate)
       ::Chat::MessageProcessor.prepend(::LinkSafety::ChatMessageProcessorOneboxGate)
     end
+
+    module ::LinkSafety
+      module ChatMessageProcessorFinalGuard
+        def run!(...)
+          result = super
+          ::LinkSafety::FinalContentGuard.apply!(@doc, target: @model) if SiteSetting.link_safety_enabled
+          result
+        end
+      end
+    end
+    unless ::Chat::MessageProcessor.ancestors.include?(::LinkSafety::ChatMessageProcessorFinalGuard)
+      ::Chat::MessageProcessor.prepend(::LinkSafety::ChatMessageProcessorFinalGuard)
+    end
+  end
+
+  module ::LinkSafety
+    module CookedPostProcessorFinalGuard
+      def post_process(...)
+        result = super
+        ::LinkSafety::FinalContentGuard.apply!(@doc, target: @post) if SiteSetting.link_safety_enabled
+        result
+      end
+    end
+  end
+  unless ::CookedPostProcessor.ancestors.include?(::LinkSafety::CookedPostProcessorFinalGuard)
+    ::CookedPostProcessor.prepend(::LinkSafety::CookedPostProcessorFinalGuard)
+  end
+
+  # Metadata is guarded at presentation time rather than destructively editing
+  # stored user/group/topic content. Existing serializer include/privacy methods
+  # remain untouched; where a shared core presentation method exists we delegate
+  # to it, and featured-link guards read the same model value the core serializer
+  # would expose. Link Safety only changes returned navigation/HTML while cached
+  # or fail-closed historical verification state requires it.
+  module ::LinkSafety
+    module UserProfileMetadataGuard
+      def bio_processed
+        ::LinkSafety::MetadataRenderer.render_html(super, surface: :profile)
+      end
+
+      def bio_excerpt(...)
+        ::LinkSafety::MetadataRenderer.render_html(super, surface: :profile)
+      end
+    end
+
+    module UserCardSerializerMetadataGuard
+      def website
+        ::LinkSafety::MetadataRenderer.safe_url(super, surface: :profile)
+      end
+    end
+
+    module BasicGroupSerializerMetadataGuard
+      def bio_cooked
+        ::LinkSafety::MetadataRenderer.render_html(super, surface: :group_profile)
+      end
+    end
+
+    module TopicListItemSerializerMetadataGuard
+      def featured_link
+        ::LinkSafety::MetadataRenderer.safe_url(object.featured_link, surface: :topic_featured_link)
+      end
+    end
+
+    module SuggestedTopicSerializerMetadataGuard
+      def featured_link
+        ::LinkSafety::MetadataRenderer.safe_url(object.featured_link, surface: :topic_featured_link)
+      end
+    end
+
+    module TopicViewSerializerMetadataGuard
+      def featured_link
+        ::LinkSafety::MetadataRenderer.safe_url(
+          object.topic.featured_link,
+          surface: :topic_featured_link,
+        )
+      end
+    end
+  end
+
+  # Discourse's local user onebox reads profile fields directly instead of
+  # going through UserSerializer/UserCardSerializer. Guard the completed local
+  # onebox HTML as well so a revalidated profile threat cannot remain clickable
+  # through that secondary presentation path. This is cache-only rendering and
+  # never performs a provider lookup while cooking.
+  if defined?(::Oneboxer)
+    module ::LinkSafety
+      module OneboxerUserProfileMetadataGuard
+        def local_user_html(...)
+          ::LinkSafety::MetadataRenderer.render_html(super, surface: :profile)
+        end
+      end
+    end
+    unless ::Oneboxer.singleton_class.ancestors.include?(::LinkSafety::OneboxerUserProfileMetadataGuard)
+      ::Oneboxer.singleton_class.prepend(::LinkSafety::OneboxerUserProfileMetadataGuard)
+    end
+  end
+
+  {
+    ::UserProfile => ::LinkSafety::UserProfileMetadataGuard,
+    ::UserCardSerializer => ::LinkSafety::UserCardSerializerMetadataGuard,
+    ::BasicGroupSerializer => ::LinkSafety::BasicGroupSerializerMetadataGuard,
+    ::TopicListItemSerializer => ::LinkSafety::TopicListItemSerializerMetadataGuard,
+    ::SuggestedTopicSerializer => ::LinkSafety::SuggestedTopicSerializerMetadataGuard,
+    ::TopicViewSerializer => ::LinkSafety::TopicViewSerializerMetadataGuard,
+  }.each do |serializer, guard|
+    serializer.prepend(guard) unless serializer.ancestors.include?(guard)
   end
 
   Plugin::Filter.register(:after_post_cook) do |post, cooked|
@@ -201,12 +318,8 @@ after_initialize do
     end
   end
 
-  on(:before_post_process_cooked) do |doc, _post|
-    ::LinkSafety::OneboxGate.apply!(doc) if SiteSetting.link_safety_enabled
-  end
-
-  on(:chat_message_processed) do |doc, _message|
-    ::LinkSafety::Renderer.render_document!(doc) if SiteSetting.link_safety_enabled
+  on(:before_post_process_cooked) do |doc, post|
+    ::LinkSafety::OneboxGate.apply!(doc, target: post) if SiteSetting.link_safety_enabled
   end
 
   Discourse::Application.routes.append do

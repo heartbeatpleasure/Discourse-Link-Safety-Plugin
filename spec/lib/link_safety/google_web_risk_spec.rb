@@ -28,7 +28,7 @@ RSpec.describe LinkSafety::Providers::GoogleWebRisk do
     item = LinkSafety::Canonicalizer.call("https://example.com/")
     expect(provider).to receive(:request) do |uri, headers:, deadline:, **_options|
       query = URI.decode_www_form(uri.query.to_s)
-      expect(query).to include(["uri", item.canonical])
+      expect(query).to include(["uri", item.full_url])
       expect(query.map(&:first)).not_to include("key")
       expect(headers["X-Goog-Api-Key"]).to eq("test-key")
       expect(deadline).to be_a(Numeric)
@@ -37,6 +37,16 @@ RSpec.describe LinkSafety::Providers::GoogleWebRisk do
 
     result = provider.check_many([item]).fetch(item.fingerprint)
     expect(result.status).to eq("clean")
+  end
+
+  it "sends a non-default port to the full-URL Lookup API" do
+    item = LinkSafety::Canonicalizer.call("https://example.com:8443/path")
+    expect(provider).to receive(:request) do |uri, **_options|
+      expect(URI.decode_www_form(uri.query.to_s)).to include(["uri", "https://example.com:8443/path"])
+      [http_ok, 20]
+    end
+
+    expect(provider.check_many([item]).fetch(item.fingerprint).status).to eq("clean")
   end
 
   it "does not count non-transient 4xx failures towards the circuit breaker" do

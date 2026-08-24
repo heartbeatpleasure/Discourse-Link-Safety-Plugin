@@ -13,7 +13,8 @@ module ::LinkSafety
       RateLimiter.new(current_user, "link-safety-health-test", 4, 1.minute).performed!
       result = ::LinkSafety::Checker.check_many(
         ["https://example.com/"], surface: :admin_test, force: true,
-        bypass_circuit: true, bypass_lookup_budget: true, user: current_user,
+        bypass_circuit: true, bypass_lookup_budget: true, bypass_trusted: true,
+        user: current_user, priority: :security,
       ).first
       if result&.error?
         render_json_error(result.error_code.presence || "Provider test failed", status: 422)

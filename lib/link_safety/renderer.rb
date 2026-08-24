@@ -3,50 +3,106 @@
 module ::LinkSafety
   class Renderer
     BLOCKED_CLASS = "link-safety-blocked-link".freeze
+    ORIGINAL_HREF_ATTRIBUTE = "data-link-safety-original-href".freeze
 
-    def self.render_html(html)
+    def self.render_html(html, failure_policy: SiteSetting.link_safety_failure_policy)
       return html if html.blank? || SiteSetting.link_safety_mode != "enforce"
       doc = Nokogiri::HTML5.fragment(html)
-      changed = render_document!(doc)
+      changed = render_document!(doc, failure_policy: failure_policy)
       changed ? doc.to_html : html
     rescue => e
       Rails.logger.warn("[LinkSafety] render filter failed class=#{e.class.name}")
       ::LinkSafety::HealthRegistry.control_failure!(component: :renderer, code: e.class.name)
-      # If even the cooked fragment cannot be parsed, do not return the original
-      # HTML in Enforce mode. Hiding the affected cooked content is safer than
-      # accidentally restoring an external link after a security-control fault.
       %(<p class="link-safety-warning">#{ERB::Util.html_escape(I18n.t("link_safety.rendered_content_unavailable"))}</p>)
     end
 
-    def self.render_document!(doc)
+    def self.render_document!(doc, failure_policy: SiteSetting.link_safety_failure_policy)
       return false if SiteSetting.link_safety_mode != "enforce"
       changed = false
       doc.css("a[href]").each do |anchor|
-        candidate = ::LinkSafety::UrlCandidateClassifier.classify(anchor["href"])
-        next unless candidate.checkable?
-
-        item = ::LinkSafety::Canonicalizer.call(candidate.url)
+        item = item_for(anchor["href"])
         next unless item
-        next if ::LinkSafety::TrustedDomains.local_host?(item.host) || ::LinkSafety::TrustedDomains.trusted?(item.host)
-        entry = ::LinkSafety::CacheEntry.lookup(provider: SiteSetting.link_safety_provider, fingerprint: item.fingerprint, legacy_fingerprint: item.legacy_fingerprint)
-        next unless entry&.verdict == "threat"
+        next if ::LinkSafety::TrustedDomains.trusted?(item.host)
 
-        provider = entry.source_provider.presence || entry.provider
-        neutralize_anchor!(anchor, provider: provider)
-        changed = true
+        entry = ::LinkSafety::CacheEntry.lookup(
+          provider: SiteSetting.link_safety_provider,
+          fingerprint: item.fingerprint,
+          legacy_fingerprint: item.legacy_fingerprint,
+        )
+        unless entry
+          stale = ::LinkSafety::CacheEntry.lookup_any(
+            provider: SiteSetting.link_safety_provider,
+            fingerprint: item.fingerprint,
+            legacy_fingerprint: item.legacy_fingerprint,
+          )
+          if stale&.verdict == "threat" && failure_policy.to_s == "fail_closed"
+            neutralize_unverified_anchor!(anchor)
+            changed = true
+          end
+          next
+        end
+
+        if entry.verdict == "threat"
+          provider = entry.source_provider.presence || entry.provider
+          neutralize_anchor!(anchor, provider: provider)
+          changed = true
+        elsif entry.verdict == "error" &&
+              ::LinkSafety::VerificationPolicy.block_errors?(
+                [entry.error_code],
+                failure_policy: failure_policy,
+              )
+          neutralize_unverified_anchor!(anchor)
+          changed = true
+        end
       end
       changed
     rescue => e
       Rails.logger.warn("[LinkSafety] render document failed class=#{e.class.name}")
       ::LinkSafety::HealthRegistry.control_failure!(component: :renderer, code: e.class.name)
-      # In Enforce mode an internal rendering failure must not leave an
-      # external link clickable. Fall back to neutralising external HTTP(S)
-      # anchors without attributing them to Google because no verdict source
-      # can be established safely in this error path.
       fail_closed_external_links!(doc)
     end
 
     def self.neutralize_anchor!(anchor, provider:)
+      remember_original_href!(anchor)
+      strip_navigation!(anchor)
+      anchor["title"] = ::LinkSafety::WarningPresenter.validation_message_for_provider(provider)
+      append_warning!(anchor, provider: provider)
+      true
+    end
+
+    def self.neutralize_unverified_anchor!(anchor)
+      remember_original_href!(anchor)
+      strip_navigation!(anchor)
+      anchor["title"] = I18n.t("link_safety.errors.unavailable")
+      append_unverified_warning!(anchor)
+      true
+    end
+
+    def self.original_href(anchor)
+      anchor["href"].presence || anchor[ORIGINAL_HREF_ATTRIBUTE].presence
+    end
+
+    def self.fail_closed_document!(doc)
+      fail_closed_external_links!(doc)
+    end
+
+    def self.item_for(href)
+      candidate = ::LinkSafety::UrlCandidateClassifier.classify(href)
+      return unless candidate.checkable?
+
+      ::LinkSafety::Canonicalizer.call(candidate.url)
+    rescue StandardError
+      nil
+    end
+    private_class_method :item_for
+
+    def self.remember_original_href!(anchor)
+      href = anchor["href"].presence
+      anchor[ORIGINAL_HREF_ATTRIBUTE] ||= href if href
+    end
+    private_class_method :remember_original_href!
+
+    def self.strip_navigation!(anchor)
       anchor.remove_attribute("href")
       anchor.remove_attribute("target")
       anchor.remove_attribute("data-onebox-src")
@@ -55,26 +111,15 @@ module ::LinkSafety
       classes << BLOCKED_CLASS
       anchor["class"] = classes.uniq.join(" ")
       anchor["role"] = "note"
-      anchor["title"] = ::LinkSafety::WarningPresenter.validation_message_for_provider(provider)
-      append_warning!(anchor, provider: provider)
     end
-    private_class_method :neutralize_anchor!
+    private_class_method :strip_navigation!
 
     def self.fail_closed_external_links!(doc)
       changed = false
       doc.css("a[href]").each do |anchor|
         next unless external_http_href?(anchor["href"])
 
-        anchor.remove_attribute("href")
-        anchor.remove_attribute("target")
-        anchor.remove_attribute("data-onebox-src")
-        classes = anchor["class"].to_s.split
-        classes -= %w[onebox inline-onebox inline-onebox-loading]
-        classes << BLOCKED_CLASS
-        anchor["class"] = classes.uniq.join(" ")
-        anchor["role"] = "note"
-        anchor["title"] = I18n.t("link_safety.errors.unavailable")
-        append_unverified_warning!(anchor)
+        neutralize_unverified_anchor!(anchor)
         changed = true
       end
       changed
@@ -123,6 +168,6 @@ module ::LinkSafety
       warning.add_child(Nokogiri::XML::Text.new(". #{presentation[:accuracy_notice]}", anchor.document))
       anchor.add_next_sibling(warning)
     end
-
+    private_class_method :append_warning!
   end
 end

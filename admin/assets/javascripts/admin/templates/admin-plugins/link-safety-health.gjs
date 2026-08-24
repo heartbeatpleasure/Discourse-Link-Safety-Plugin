@@ -192,6 +192,46 @@ export default RouteTemplate(
           </div>
         </section>
 
+        {{#if @controller.data.urlhaus.enabled}}
+          <section class="ls-health__panel">
+            <h2>{{i18n "admin.link_safety.urlhaus_provider_activity"}}</h2>
+            <div class="ls-health__grid">
+              <div class="ls-health__item">
+                <div class="ls-health__label">{{i18n "admin.link_safety.provider_configuration"}}</div>
+                <div class="ls-health__value">{{if @controller.data.urlhaus.configured (i18n "admin.link_safety.configured") (i18n "admin.link_safety.not_configured")}}</div>
+              </div>
+              <div class="ls-health__item">
+                <div class="ls-health__label">{{i18n "admin.link_safety.circuit"}}</div>
+                <div class="ls-health__value">{{if @controller.data.urlhaus.circuit_open (i18n "admin.link_safety.circuit_open") (i18n "admin.link_safety.circuit_closed")}}</div>
+              </div>
+              <div class="ls-health__item">
+                <div class="ls-health__label">{{i18n "admin.link_safety.last_success"}}</div>
+                <div class="ls-health__value">{{@controller.data.urlhaus.last_success_at_display}}</div>
+              </div>
+              <div class="ls-health__item">
+                <div class="ls-health__label">{{i18n "admin.link_safety.last_failure"}}</div>
+                <div class="ls-health__value">{{@controller.data.urlhaus.last_failure_at_display}}</div>
+              </div>
+              <div class="ls-health__item">
+                <div class="ls-health__label">{{i18n "admin.link_safety.failure_code"}}</div>
+                <div class="ls-health__value">{{@controller.data.urlhaus.last_failure_code_display}}</div>
+              </div>
+              <div class="ls-health__item">
+                <div class="ls-health__label">{{i18n "admin.link_safety.last_latency"}}</div>
+                <div class="ls-health__value">{{if @controller.data.urlhaus.last_latency_ms @controller.data.urlhaus.last_latency_ms "-"}}</div>
+              </div>
+              <div class="ls-health__item">
+                <div class="ls-health__label">{{i18n "admin.link_safety.monthly_calls"}}</div>
+                <div class="ls-health__value">{{@controller.data.urlhaus.provider_calls_month}}</div>
+              </div>
+              <div class="ls-health__item">
+                <div class="ls-health__label">{{i18n "admin.link_safety.circuit_open_until"}}</div>
+                <div class="ls-health__value">{{@controller.data.urlhaus.circuit_open_until_display}}</div>
+              </div>
+            </div>
+          </section>
+        {{/if}}
+
         <section class="ls-health__panel">
           <h2>{{i18n "admin.link_safety.recent_activity"}}</h2>
           <div class="ls-health__grid">
