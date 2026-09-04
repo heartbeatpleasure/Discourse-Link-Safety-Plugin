@@ -4,6 +4,7 @@ module ::LinkSafety
   class FinalContentVerifier
     Result = Data.define(:checked, :threats, :errors)
     SCHEDULE_TTL = 15.minutes.to_i
+    THREAT_REFRESH_LOOKAHEAD = 2.minutes
 
     def self.schedule(target, delay: 1.minute, revalidation: false)
       return unless target&.id && SiteSetting.link_safety_enabled
@@ -141,7 +142,8 @@ module ::LinkSafety
     private_class_method :final_document_extraction
 
     def self.due_urls(urls, revalidation:)
-      cutoff = SiteSetting.link_safety_revalidation_interval_hours.to_i.hours.ago
+      now = Time.zone.now
+      cutoff = now - SiteSetting.link_safety_revalidation_interval_hours.to_i.hours
       previous = {}
       due = []
 
@@ -157,10 +159,14 @@ module ::LinkSafety
         )
         previous[item.fingerprint] = entry&.verdict
 
+        refresh_expiring_threat =
+          entry&.verdict == "threat" && entry.expires_at.present? &&
+            entry.expires_at <= now + THREAT_REFRESH_LOOKAHEAD
+
         should_check =
           if revalidation
-            entry.nil? || entry.expires_at.blank? || entry.expires_at <= Time.zone.now ||
-              entry.checked_at.blank? || entry.checked_at <= cutoff
+            refresh_expiring_threat || entry.nil? || entry.expires_at.blank? ||
+              entry.expires_at <= now || entry.checked_at.blank? || entry.checked_at <= cutoff
           else
             valid = ::LinkSafety::CacheEntry.lookup(
               provider: SiteSetting.link_safety_provider,

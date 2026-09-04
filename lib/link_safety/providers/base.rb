@@ -9,7 +9,7 @@ module ::LinkSafety
   module Providers
     class Base
       MAX_RESPONSE_BYTES = 512 * 1024
-      USER_AGENT = "Discourse-Link-Safety-Plugin/1.3.3".freeze
+      USER_AGENT = "Discourse-Link-Safety-Plugin/1.3.4".freeze
 
       TRANSIENT_ERROR_CODES = %w[
         connect_timeout

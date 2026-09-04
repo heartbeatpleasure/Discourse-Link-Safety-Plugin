@@ -64,6 +64,66 @@ RSpec.describe LinkSafety::FinalContentVerifier do
     expect(described_class).not_to have_received(:rebake)
   end
 
+  it "revalidates a cached threat before its provider-backed verdict expires" do
+    allow(described_class).to receive(:due_urls).and_call_original
+    SiteSetting.link_safety_revalidation_interval_hours = 24
+
+    item = double(
+      "canonical",
+      host: "example.com",
+      fingerprint: "a" * 64,
+      legacy_fingerprint: nil,
+    )
+    entry = double(
+      "cache entry",
+      verdict: "threat",
+      expires_at: 90.seconds.from_now,
+      checked_at: 5.minutes.ago,
+    )
+    allow(LinkSafety::Canonicalizer).to receive(:call).with("https://example.com/").and_return(item)
+    allow(LinkSafety::TrustedDomains).to receive(:trusted?).with("example.com").and_return(false)
+    allow(LinkSafety::CacheEntry).to receive(:lookup_any).and_return(entry)
+
+    due, previous = described_class.send(
+      :due_urls,
+      ["https://example.com/"],
+      revalidation: true,
+    )
+
+    expect(due).to eq(["https://example.com/"])
+    expect(previous).to eq("a" * 64 => "threat")
+  end
+
+  it "does not revalidate a fresh threat that is not close to expiry" do
+    allow(described_class).to receive(:due_urls).and_call_original
+    SiteSetting.link_safety_revalidation_interval_hours = 24
+
+    item = double(
+      "canonical",
+      host: "example.com",
+      fingerprint: "a" * 64,
+      legacy_fingerprint: nil,
+    )
+    entry = double(
+      "cache entry",
+      verdict: "threat",
+      expires_at: 5.minutes.from_now,
+      checked_at: 5.minutes.ago,
+    )
+    allow(LinkSafety::Canonicalizer).to receive(:call).with("https://example.com/").and_return(item)
+    allow(LinkSafety::TrustedDomains).to receive(:trusted?).with("example.com").and_return(false)
+    allow(LinkSafety::CacheEntry).to receive(:lookup_any).and_return(entry)
+
+    due, previous = described_class.send(
+      :due_urls,
+      ["https://example.com/"],
+      revalidation: true,
+    )
+
+    expect(due).to eq([])
+    expect(previous).to eq("a" * 64 => "threat")
+  end
+
   it "rebakes a PostLocalization through Discourse's localized cooked job" do
     SiteSetting.link_safety_enabled = false
     localization = Fabricate(:post_localization)
