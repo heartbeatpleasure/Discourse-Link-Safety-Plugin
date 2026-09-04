@@ -38,4 +38,13 @@ RSpec.describe LinkSafety::ActorResolver do
     topic = double("topic", acting_user: nil, user: author, new_record?: false)
     expect(described_class.for_topic(topic)).to be_nil
   end
+
+  it "attributes a post localization to its localizer rather than the parent post author" do
+    author = Fabricate(:user)
+    localizer = Fabricate(:user)
+    post = Fabricate(:post, user: author)
+    localization = Fabricate(:post_localization, post: post, localizer_user_id: localizer.id)
+
+    expect(described_class.for_post_localization(localization)).to eq(localizer)
+  end
 end

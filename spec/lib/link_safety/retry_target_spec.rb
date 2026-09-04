@@ -189,4 +189,19 @@ RSpec.describe Jobs::LinkSafetyRetryTarget do
 
     expect(LinkSafety::Checker).not_to have_received(:check_many)
   end
+
+  it "loads and rebakes a PostLocalization without rebaking the parent Post" do
+    SiteSetting.link_safety_enabled = false
+    localization = Fabricate(:post_localization)
+    SiteSetting.link_safety_enabled = true
+
+    expect(job.send(:find_target, "PostLocalization", localization.id)).to eq(localization)
+    expect(Jobs).to receive(:enqueue).with(
+      :process_localized_cooked,
+      post_localization_id: localization.id,
+      recook: true,
+    )
+
+    job.send(:rebake, localization)
+  end
 end

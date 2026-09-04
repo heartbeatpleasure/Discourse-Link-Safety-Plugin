@@ -33,6 +33,34 @@ RSpec.describe LinkSafety::PendingScheduler do
     )
   end
 
+  it "schedules a post localization with its own target id, actor and content identity" do
+    localizer = Fabricate(:user)
+    localization = double("post localization", id: 88)
+    extraction = LinkSafety::Extractor::Extraction.new(urls: [], error_code: nil)
+    context = LinkSafety::TargetContext::Context.new(
+      surface: :public_post, actor: localizer, private_content: false, extraction: extraction,
+    )
+
+    allow(LinkSafety::TargetContext).to receive(:for).with(localization).and_return(context)
+    allow(LinkSafety::RetryContext).to receive(:content_hash_for).with(localization).and_return("loc-hash")
+    allow(LinkSafety::RetryContext).to receive(:content_version_for).with(localization).and_return(
+      "2026-09-04T20:00:00.000000Z",
+    )
+    allow(described_class).to receive(:schedule)
+
+    described_class.for_post_localization(localization)
+
+    expect(described_class).to have_received(:schedule).with(
+      target_type: "PostLocalization",
+      target_id: 88,
+      urls: [],
+      surface: :public_post,
+      actor_id: localizer.id,
+      content_hash: "loc-hash",
+      content_version: "2026-09-04T20:00:00.000000Z",
+    )
+  end
+
   it "carries a chat updated_at content version into a retry" do
     editor = Fabricate(:user)
     message = double("chat message", id: 77)

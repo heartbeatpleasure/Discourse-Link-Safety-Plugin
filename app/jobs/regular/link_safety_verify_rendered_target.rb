@@ -55,6 +55,7 @@ module ::Jobs
     def find_target(type, id)
       case type.to_s
       when "Post" then ::Post.find_by(id: id)
+      when "PostLocalization" then defined?(::PostLocalization) ? ::PostLocalization.find_by(id: id) : nil
       when "UserProfile" then ::UserProfile.find_by(user_id: id)
       when "Topic" then ::Topic.find_by(id: id)
       when "Group" then ::Group.find_by(id: id)

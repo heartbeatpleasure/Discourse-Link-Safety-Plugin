@@ -3,6 +3,14 @@
 RSpec.describe Jobs::LinkSafetyVerifyRenderedTarget do
   fab!(:user) { Fabricate(:user) }
 
+  it "loads PostLocalization targets by their independent id" do
+    SiteSetting.link_safety_enabled = false
+    localization = Fabricate(:post_localization)
+    SiteSetting.link_safety_enabled = true
+
+    expect(described_class.new.send(:find_target, "PostLocalization", localization.id)).to eq(localization)
+  end
+
   it "loads UserProfile targets by their user_id primary key" do
     profile = user.user_profile
 

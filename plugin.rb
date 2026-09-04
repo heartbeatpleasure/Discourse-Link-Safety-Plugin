@@ -2,7 +2,7 @@
 
 # name: Discourse-Link-Safety-Plugin
 # about: Checks external links in Discourse content against configurable malicious URL reputation providers.
-# version: 1.3.2
+# version: 1.3.3
 # authors: Chris
 
 add_admin_route "admin.link_safety.title", "linkSafety"
@@ -107,6 +107,37 @@ after_initialize do
     if SiteSetting.link_safety_enabled && (previous_changes.key?("id") || previous_changes.key?("raw"))
       ::LinkSafety::FinalContentGuard.persist_model_allowance!(self)
       ::LinkSafety::PendingScheduler.for_post(self)
+    end
+  end
+
+  if defined?(::PostLocalization)
+    plugin_instance.validate("PostLocalization", :link_safety_validate_localized_post_links) do
+      next unless SiteSetting.link_safety_enabled
+      next unless new_record? || will_save_change_to_raw?
+
+      post = self.post
+      next unless post
+
+      surface = post.topic&.private_message? ? :private_message : :public_post
+      next unless ::LinkSafety::SurfacePolicy.enabled?(surface)
+
+      actor = ::LinkSafety::ActorResolver.for_post_localization(self)
+      extraction = ::LinkSafety::Extractor.post_raw_result(raw, post.topic_id, user: actor)
+      ::LinkSafety::ContentValidator.validate_model!(
+        model: self,
+        urls: extraction.urls,
+        extraction_error: extraction.error_code,
+        surface: surface,
+        user: actor,
+        private_content: ::LinkSafety::PrivacyContext.for_post(post),
+      )
+    end
+
+    plugin_instance.add_model_callback("PostLocalization", :after_commit) do
+      if SiteSetting.link_safety_enabled && (previous_changes.key?("id") || previous_changes.key?("raw"))
+        ::LinkSafety::FinalContentGuard.persist_model_allowance!(self)
+        ::LinkSafety::PendingScheduler.for_post_localization(self)
+      end
     end
   end
 
@@ -261,9 +292,10 @@ after_initialize do
     module ::LinkSafety
       module LocalizedCookedPostProcessorGuard
         def post_process(...)
-          ::LinkSafety::OneboxGate.apply!(@doc, target: @post) if SiteSetting.link_safety_enabled
+          target = @post_localization || @post
+          ::LinkSafety::OneboxGate.apply!(@doc, target: target) if SiteSetting.link_safety_enabled
           result = super
-          ::LinkSafety::FinalContentGuard.apply!(@doc, target: @post) if SiteSetting.link_safety_enabled
+          ::LinkSafety::FinalContentGuard.apply!(@doc, target: target) if SiteSetting.link_safety_enabled
           result
         end
       end

@@ -5,6 +5,16 @@ module ::LinkSafety
     Context = Data.define(:surface, :actor, :private_content, :extraction)
 
     def self.for(target, actor_id: nil, expected_hash: nil, expected_version: nil, extract: true)
+      if defined?(::PostLocalization) && target.is_a?(::PostLocalization)
+        return post_localization_context(
+          target,
+          actor_id: actor_id,
+          expected_hash: expected_hash,
+          expected_version: expected_version,
+          extract: extract,
+        )
+      end
+
       case target
       when ::Post
         post_context(
@@ -54,6 +64,30 @@ module ::LinkSafety
       )
     end
     private_class_method :post_context
+
+    def self.post_localization_context(localization, actor_id:, expected_hash:, expected_version:, extract:)
+      post = localization.post
+      return unless post
+
+      surface = post.topic&.private_message? ? :private_message : :public_post
+      actor = ::LinkSafety::RetryContext.actor_for(
+        localization,
+        actor_id: actor_id,
+        expected_hash: expected_hash,
+        expected_version: expected_version,
+      )
+      extraction =
+        if extract
+          ::LinkSafety::Extractor.post_raw_result(localization.raw, post.topic_id, user: actor)
+        end
+      Context.new(
+        surface: surface,
+        actor: actor,
+        private_content: ::LinkSafety::PrivacyContext.for_post(post),
+        extraction: extraction,
+      )
+    end
+    private_class_method :post_localization_context
 
     def self.chat_context(message, actor_id:, expected_hash:, expected_version:, extract:)
       is_dm = ::Chat::Channel.direct_channel_chatable_types.include?(message.chat_channel&.chatable_type)

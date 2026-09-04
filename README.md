@@ -1,6 +1,6 @@
 # Discourse Link Safety Plugin
 
-Server-side malicious-link protection for Discourse posts, private messages, Chat messages, oneboxes, profile links, topic featured links, and group biographies.
+Server-side malicious-link protection for Discourse posts and post localizations/translations, private messages, Chat messages, oneboxes, profile links, topic featured links, and group biographies.
 
 ## Repository name
 
@@ -35,6 +35,7 @@ Add the plugin to the Discourse container configuration in the normal way and re
 
 - Public topics and replies
 - Private-message topics and replies
+- Post localizations/translations, using the same public/private surface policy as their parent post
 - Public/restricted Chat channels
 - Chat direct-message channels
 - Chat message edits
@@ -72,22 +73,22 @@ Transient provider availability failures can follow the configured `fail_open` p
 - Uncached remote lookup work is protected by both a weighted per-user 10-minute budget and a global per-minute budget, independent of Discourse's normal posting rate limits. A configurable portion of the global budget is reserved for staff actions, retries, final-cooked verification, and periodic revalidation, so ordinary traffic cannot starve already-published-content remediation.
 - An absolute 200-candidate ceiling is enforced before canonicalization so malformed/high-volume URL submissions cannot force unbounded parsing work.
 - Pending retries re-check the current surface settings and current Monitor/Enforce mode before doing provider work.
-- Pending post/Chat retries carry a SHA-256 content identity, Post revision where applicable, and the original checking actor ID; a delayed job is discarded when the content has changed. If that actor no longer exists, attribution remains empty rather than falling back to the content owner.
+- Pending post/localization/Chat retries carry a SHA-256 content identity, Post revision or target update timestamp where applicable, and the original checking actor ID; a delayed job is discarded when the content has changed. If that actor no longer exists, attribution remains empty rather than falling back to the content owner.
 - The Health page exposes privacy-safe internal security-control failure counters that expire after one hour without another failure; no URLs, message content, API keys, or provider response bodies are included. Repeated/internal control failures also surface through the Discourse problem-check framework.
 - Cached verdicts retain the provider that actually supplied the verdict, including URLhaus supplemental detections. URLhaus has independent typed clean/threat/error semantics, health/circuit state, and threat TTLs so a clean zero-TTL Web Risk response cannot erase URLhaus enforcement.
 - Implicit internal-link trust is exact-origin scoped (scheme + normalized hostname + effective port). Safe Browsing keeps its specification-required port-insensitive hash-expression form, while full-URL providers receive the normalized URL with any non-default port preserved. Site-owned FileStore/S3/CDN resources are recognized separately using runtime-derived authority and path-prefix checks; no forum/storage hostname is hardcoded and an asset host is not globally trusted.
 - Circuit-breaker, health, lookup-budget, User Note deduplication, final-verification, and revalidation Redis state is namespaced per Discourse site/database for multisite isolation.
 - A final cooked-content guard runs after the complete Discourse Post/Chat processing pipeline to catch external links inserted by other plugins after normal validation. Unknown links are temporarily neutralized only when the configured fail-closed policy requires it; background jobs carry target IDs/content identity, never full URLs.
-- Periodic revalidation is enabled by default with a conservative bounded target budget (10 targets/hour by default). Existing Post, Chat, profile, topic-featured-link, and group-bio URLs can therefore pick up later threat listings. Metadata is never destructively edited: current cached threats are suppressed/neutralized at presentation time, threat verdicts receive a target-only refresh before expiry, expired confirmed-threat fingerprints remain only as fail-closed historical state during provider outages, and content automatically returns after an explicit clean revalidation.
+- Periodic revalidation is enabled by default with a conservative bounded target budget (10 targets/hour by default). Existing Post, post-localization/translation, Chat, profile, topic-featured-link, and group-bio URLs can therefore pick up later threat listings. Metadata is never destructively edited: current cached threats are suppressed/neutralized at presentation time, threat verdicts receive a target-only refresh before expiry, expired confirmed-threat fingerprints remain only as fail-closed historical state during provider outages, and content automatically returns after an explicit clean revalidation.
 - Web Risk zero-TTL clean responses are not turned into reusable negative cache entries. A short-lived content-bound one-shot allowance only bridges the exact immediate cook/onebox/final-DOM cycle that follows a fresh clean check.
 
 ## User Notes
 
-If the bundled Discourse User Notes plugin is enabled, Link Safety can add a staff note after repeated confirmed threat events. Default mode is `threshold_only`. Monitor-only detections do not create notes. For post and Chat edits, lookup budgets, detections, and optional User Notes are attributed to the last editor rather than automatically to the original author. Group biographies deliberately use no user attribution because the Group model does not expose a reliable editing user during validation.
+If the bundled Discourse User Notes plugin is enabled, Link Safety can add a staff note after repeated confirmed threat events. Default mode is `threshold_only`. Monitor-only detections do not create notes. For post and Chat edits, lookup budgets, detections, and optional User Notes are attributed to the last editor rather than automatically to the original author. Post localizations are attributed to their `localizer_user_id`, independently from the parent post author/editor. Group biographies deliberately use no user attribution because the Group model does not expose a reliable editing user during validation.
 
 ## Automated tests
 
-The plugin includes specs for Safe Browsing canonicalization/expression generation, monitor/enforce behavior, fail-open/fail-closed behavior, threat rendering, onebox gating, privacy-context classification, exact-origin/FileStore trust, URLhaus failover/TTL behavior, multisite Redis namespacing, security lookup-budget reserve, retry actor/content binding, final cooked-content guarding, metadata presentation, and revalidation target handling. External providers must be stubbed in automated test suites; live API calls belong only in explicit staging/Health tests.
+The plugin includes specs for Safe Browsing canonicalization/expression generation, monitor/enforce behavior, fail-open/fail-closed behavior, threat rendering, onebox gating, privacy-context classification, exact-origin/FileStore trust, URLhaus failover/TTL behavior, multisite Redis namespacing, security lookup-budget reserve, retry actor/content binding, independent PostLocalization content identity/attribution, final cooked-content guarding, metadata presentation, and revalidation target handling. External providers must be stubbed in automated test suites; live API calls belong only in explicit staging/Health tests.
 
 ## Recommended rollout
 
@@ -95,7 +96,7 @@ The plugin includes specs for Safe Browsing canonicalization/expression generati
 2. Configure provider and key.
 3. Run Health provider test.
 4. Enable plugin in Monitor mode.
-5. Test public topic, PM, Chat, Chat DM, profile link, topic featured link, group biography, ordinary link, bare link, and onebox cases.
+5. Test public topic, post localization/translation, PM, Chat, Chat DM, profile link, topic featured link, group biography, ordinary link, bare link, and onebox cases.
 6. Review Detections/Statistics/Health.
 7. Switch to Enforce only after staging behavior is verified.
 
@@ -108,12 +109,12 @@ Run the first rebuild with `link_safety_enabled = false`, then use this sequence
 3. Post a normal external link in a public topic, a private message, a public Chat channel, and a Chat direct message. Repeat with a bare URL and a URL that normally renders as a onebox. All should continue to work in monitor mode.
 4. Enable `link_safety_scan_topic_featured_links` and `link_safety_scan_group_bio_links` on staging, then change a profile website/bio, a topic featured link (where enabled by Discourse), and a non-automatic group biography to contain a normal external link and confirm that each saves.
 5. On staging only, use Google's documented malware test URL `http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/`. In monitor mode the content should remain publishable while a detection is recorded.
-6. Change to `link_safety_mode = enforce` and repeat the malware test URL in a public post, PM, Chat, Chat DM, profile field, topic featured link, and group biography. The create/edit should be rejected; existing content must remain unchanged when an edit is rejected.
+6. Change to `link_safety_mode = enforce` and repeat the malware test URL in a public post, a post localization/translation, PM, Chat, Chat DM, profile field, topic featured link, and group biography. The create/edit should be rejected; existing content must remain unchanged when an edit is rejected.
 7. Add `example.com` to `link_safety_trusted_domains` and verify that a link to that exact host bypasses provider lookup. Keep `link_safety_trusted_domains_include_subdomains = false` unless subdomain trust is intentionally required.
 8. Temporarily simulate a transient provider timeout on staging if you need to verify `fail_open`; authentication/configuration errors such as an invalid API key are intentionally treated as hard verification failures in Enforce mode. Profile link changes remain fail-closed by default, as do topic featured-link and group-bio changes unless their explicit metadata fail-open setting is enabled. Restore normal provider operation immediately after the test.
 9. Verify that existing oneboxes, relative and absolute internal Discourse links, uploads/attachments, user and group mentions, category/tag hashtags, quotes, Chat transcript links, code blocks containing URL text, and ordinary posting/chat behavior are unchanged. Also verify that a same-host URL on a different scheme or non-default port is treated as external unless explicitly trusted.
 10. With a test-only post-processing plugin/filter, inject an external anchor after normal cooking and verify that the final cooked-content guard schedules verification and follows the configured fail-open/fail-closed presentation policy.
-11. Confirm `link_safety_revalidation_enabled` and its hourly target limit are appropriate for provider quota. On staging, shorten the interval temporarily and verify that a cached threat on existing Post/Chat/profile/featured-link/group-bio content is suppressed and that an explicit later clean verdict restores presentation without deleting the stored source content.
+11. Confirm `link_safety_revalidation_enabled` and its hourly target limit are appropriate for provider quota. On staging, shorten the interval temporarily and verify that a cached threat on existing Post/post-localization/Chat/profile/featured-link/group-bio content is suppressed and that an explicit later clean verdict restores presentation without deleting the stored source content.
 12. Review **Detections**, **Statistics**, and **Health**, then switch from monitor to enforce only after the staging results are correct.
 
 The malware URL above is a provider-owned test fixture; do not replace it with a live malicious site.

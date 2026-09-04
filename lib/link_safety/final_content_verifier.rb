@@ -127,12 +127,6 @@ module ::LinkSafety
       documents = []
       documents << target.cooked if target.respond_to?(:cooked) && target.cooked.present?
 
-      if target.is_a?(::Post) && defined?(::PostLocalization) && target.id
-        documents.concat(
-          ::PostLocalization.where(post_id: target.id).where.not(cooked: [nil, ""]).pluck(:cooked),
-        )
-      end
-
       urls = []
       documents.each do |html|
         extraction = ::LinkSafety::Extractor.final_document_result(html)
@@ -186,6 +180,8 @@ module ::LinkSafety
     def self.rebake(target)
       if target.is_a?(::Post)
         target.rebake!(invalidate_oneboxes: true)
+      elsif defined?(::PostLocalization) && target.is_a?(::PostLocalization)
+        Jobs.enqueue(:process_localized_cooked, post_localization_id: target.id, recook: true)
       elsif defined?(::Chat::Message) && target.is_a?(::Chat::Message)
         target.rebake!(invalidate_oneboxes: true, skip_notifications: true)
       end

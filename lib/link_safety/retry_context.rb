@@ -13,6 +13,10 @@ module ::LinkSafety
     end
 
     def self.content_hash_for(target)
+      if defined?(::PostLocalization) && target.is_a?(::PostLocalization)
+        return content_hash(target.raw)
+      end
+
       case target
       when ::Post
         content_hash(target.raw)
@@ -78,6 +82,10 @@ module ::LinkSafety
         # If the scheduled actor was deleted in the meantime, keep attribution
         # empty rather than falling back to the content owner.
         return ::User.find_by(id: actor_id)
+      end
+
+      if defined?(::PostLocalization) && target.is_a?(::PostLocalization)
+        return ::LinkSafety::ActorResolver.for_post_localization(target)
       end
 
       case target

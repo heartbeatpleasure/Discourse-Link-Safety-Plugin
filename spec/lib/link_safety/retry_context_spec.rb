@@ -58,6 +58,27 @@ RSpec.describe LinkSafety::RetryContext do
     expect(described_class.reload_matches_content?(group, old_hash)).to eq(false)
   end
 
+  it "binds post localization identity to localization raw rather than parent post raw" do
+    post = Fabricate(:post, raw: "parent content")
+    localization = Fabricate(:post_localization, post: post, raw: "translation one")
+    first = described_class.content_hash_for(localization)
+
+    localization.raw = "translation two"
+
+    expect(described_class.content_hash_for(localization)).not_to eq(first)
+    expect(described_class.content_hash_for(localization)).to eq(
+      described_class.content_hash("translation two"),
+    )
+  end
+
+  it "uses a post localization updated_at as its independent content version" do
+    timestamp = Time.utc(2026, 9, 4, 20, 15, 30, 123_456)
+    localization = Fabricate.build(:post_localization)
+    allow(localization).to receive(:updated_at).and_return(timestamp)
+
+    expect(described_class.content_version_for(localization)).to eq(timestamp.iso8601(6))
+  end
+
   it "binds profile allowances/revalidation to both website and bio content" do
     profile = UserProfile.new(user: author, website: "https://example.com", bio_raw: "first")
     first = described_class.content_hash_for(profile)

@@ -21,6 +21,14 @@ module ::LinkSafety
       nil
     end
 
+    def self.for_post_localization(localization)
+      return unless localization
+
+      ::User.find_by(id: localization.localizer_user_id)
+    rescue StandardError
+      nil
+    end
+
     def self.for_chat_message(message)
       message&.last_editor || message&.user
     rescue StandardError

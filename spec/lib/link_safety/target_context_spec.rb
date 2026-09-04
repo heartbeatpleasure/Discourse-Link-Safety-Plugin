@@ -47,4 +47,27 @@ RSpec.describe LinkSafety::TargetContext do
     expect(context.actor).to be_nil
     expect(context.extraction.urls).to eq(["https://group.example"])
   end
+
+  it "treats a post localization as an independent target while inheriting the parent surface and privacy" do
+    localizer = Fabricate(:user)
+    post = Fabricate(:post, user: user)
+    localization =
+      Fabricate(:post_localization, post: post, raw: "localized raw", localizer_user_id: localizer.id)
+    extraction =
+      LinkSafety::Extractor::Extraction.new(urls: ["https://localized.example"], error_code: nil)
+
+    allow(LinkSafety::PrivacyContext).to receive(:for_post).with(post).and_return(true)
+    allow(LinkSafety::Extractor).to receive(:post_raw_result).with(
+      localization.raw,
+      post.topic_id,
+      user: localizer,
+    ).and_return(extraction)
+
+    context = described_class.for(localization)
+
+    expect(context.surface).to eq(:public_post)
+    expect(context.actor).to eq(localizer)
+    expect(context.private_content).to eq(true)
+    expect(context.extraction.urls).to eq(["https://localized.example"])
+  end
 end

@@ -63,4 +63,18 @@ RSpec.describe LinkSafety::FinalContentVerifier do
     expect(LinkSafety::FinalContentGuard).not_to have_received(:allow_once!)
     expect(described_class).not_to have_received(:rebake)
   end
+
+  it "rebakes a PostLocalization through Discourse's localized cooked job" do
+    SiteSetting.link_safety_enabled = false
+    localization = Fabricate(:post_localization)
+    SiteSetting.link_safety_enabled = true
+
+    expect(Jobs).to receive(:enqueue).with(
+      :process_localized_cooked,
+      post_localization_id: localization.id,
+      recook: true,
+    )
+
+    described_class.send(:rebake, localization)
+  end
 end

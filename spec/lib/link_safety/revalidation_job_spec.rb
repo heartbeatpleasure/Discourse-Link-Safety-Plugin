@@ -49,4 +49,31 @@ RSpec.describe Jobs::LinkSafetyRevalidateContent do
   ensure
     Discourse.redis.del(cursor_key) if cursor_key
   end
+
+  it "walks PostLocalization targets independently with a qualified localization cursor" do
+    post = Fabricate(:post, user: user)
+    localization = Fabricate(:post_localization, post: post, raw: "localized link")
+    cursor_name = "spec_post_localizations"
+    cursor_key = LinkSafety::RedisNamespace.key("revalidation_cursor", cursor_name)
+    Discourse.redis.del(cursor_key)
+
+    result = LinkSafety::FinalContentVerifier::Result.new(checked: 1, threats: [], errors: [])
+    allow(LinkSafety::FinalContentVerifier).to receive(:verify!).and_return(result)
+
+    described_class.new.send(
+      :process_scope,
+      scope: PostLocalization.where(id: localization.id).joins(post: :topic),
+      cursor_name: cursor_name,
+      cursor_column: :id,
+      limit: 10,
+    )
+
+    expect(LinkSafety::FinalContentVerifier).to have_received(:verify!).with(
+      localization,
+      revalidation: true,
+    )
+    expect(Discourse.redis.get(cursor_key).to_i).to eq(localization.id)
+  ensure
+    Discourse.redis.del(cursor_key) if cursor_key
+  end
 end

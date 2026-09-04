@@ -49,6 +49,27 @@ module ::Jobs
           cursor_name: "posts",
           cursor_column: :id,
         }
+
+        if defined?(::PostLocalization)
+          localization_scope =
+            ::PostLocalization
+              .joins(post: :topic)
+              .where(posts: { deleted_at: nil })
+              .where.not(raw: [nil, ""])
+          localization_scope =
+            if public_posts && private_messages
+              localization_scope
+            elsif private_messages
+              localization_scope.where(topics: { archetype: Archetype.private_message })
+            else
+              localization_scope.where.not(topics: { archetype: Archetype.private_message })
+            end
+          scopes << {
+            scope: localization_scope,
+            cursor_name: "post_localizations",
+            cursor_column: :id,
+          }
+        end
       end
 
       if defined?(::Chat::Message)

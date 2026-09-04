@@ -138,6 +138,7 @@ module ::Jobs
     def find_target(type, id)
       case type.to_s
       when "Post" then ::Post.find_by(id: id)
+      when "PostLocalization" then defined?(::PostLocalization) ? ::PostLocalization.find_by(id: id) : nil
       when "Chat::Message" then defined?(::Chat::Message) ? ::Chat::Message.find_by(id: id) : nil
       end
     end
@@ -145,6 +146,8 @@ module ::Jobs
     def rebake(target)
       if target.is_a?(::Post)
         target.rebake!(invalidate_oneboxes: true)
+      elsif defined?(::PostLocalization) && target.is_a?(::PostLocalization)
+        Jobs.enqueue(:process_localized_cooked, post_localization_id: target.id, recook: true)
       elsif defined?(::Chat::Message) && target.is_a?(::Chat::Message)
         target.rebake!(invalidate_oneboxes: true, skip_notifications: true)
       end

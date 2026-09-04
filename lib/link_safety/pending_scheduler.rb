@@ -18,6 +18,22 @@ module ::LinkSafety
       )
     end
 
+    def self.for_post_localization(localization)
+      context = ::LinkSafety::TargetContext.for(localization)
+      return unless context && ::LinkSafety::SurfacePolicy.enabled?(context.surface)
+      return if context.extraction.error_code.present?
+
+      schedule(
+        target_type: "PostLocalization",
+        target_id: localization.id,
+        urls: context.extraction.urls,
+        surface: context.surface,
+        actor_id: context.actor&.id,
+        content_hash: ::LinkSafety::RetryContext.content_hash_for(localization),
+        content_version: ::LinkSafety::RetryContext.content_version_for(localization),
+      )
+    end
+
     def self.for_chat_message(message)
       context = ::LinkSafety::TargetContext.for(message)
       return unless context && ::LinkSafety::SurfacePolicy.enabled?(context.surface)
