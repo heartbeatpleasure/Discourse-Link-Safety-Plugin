@@ -3,9 +3,11 @@
 module ::LinkSafety
   class ContentValidator
     MAX_RAW_URL_CANDIDATES = 200
+    NONBLOCKING_REJECTED_IVAR = :@link_safety_nonblocking_rejected
 
     def self.validate_model!(
-      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, private_content: false
+      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, private_content: false,
+      nonblocking: false
     )
       ::LinkSafety::DetectionRecorder.clear_queued!(model)
 
@@ -18,6 +20,7 @@ module ::LinkSafety
           failure_policy: failure_policy,
           extraction_error: extraction_error,
           private_content: private_content,
+          nonblocking: nonblocking,
         )
       end
 
@@ -40,8 +43,15 @@ module ::LinkSafety
       nil
     end
 
+    def self.take_nonblocking_rejection!(model)
+      return false unless model.instance_variable_defined?(NONBLOCKING_REJECTED_IVAR)
+
+      !!model.remove_instance_variable(NONBLOCKING_REJECTED_IVAR)
+    end
+
     def self.validate_model_without_statistics_capture!(
-      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, private_content: false
+      model:, urls:, surface:, user:, failure_policy: nil, extraction_error: nil, private_content: false,
+      nonblocking: false
     )
       effective_failure_policy = (failure_policy || SiteSetting.link_safety_failure_policy).to_s
 
@@ -50,6 +60,7 @@ module ::LinkSafety
           model,
           [extraction_error],
           failure_policy: effective_failure_policy,
+          nonblocking: nonblocking,
         )
         return
       end
@@ -66,14 +77,14 @@ module ::LinkSafety
       # with many internal Discourse links/mentions must not consume the external
       # URL budget, while adversarial external candidate sets remain bounded.
       if urls.length > MAX_RAW_URL_CANDIDATES
-        model.errors.add(:base, I18n.t("link_safety.errors.too_many_links"))
+        reject_model!(model, I18n.t("link_safety.errors.too_many_links"), nonblocking: nonblocking)
         return
       end
 
       outcomes = urls.map { |url| ::LinkSafety::Canonicalizer.analyze(url) }
       canonical_errors = outcomes.select(&:error?).map(&:error_code)
       if canonical_errors.any? && ::LinkSafety::VerificationPolicy.block_errors?(canonical_errors, failure_policy: effective_failure_policy)
-        add_verification_error!(model, canonical_errors)
+        add_verification_error!(model, canonical_errors, nonblocking: nonblocking)
         return
       end
 
@@ -83,7 +94,7 @@ module ::LinkSafety
       # domains are excluded from the submission cap.
       external = canonical.reject { |item| ::LinkSafety::TrustedDomains.trusted?(item.host) }
       if external.length > SiteSetting.link_safety_max_external_urls_per_submission
-        model.errors.add(:base, I18n.t("link_safety.errors.too_many_links"))
+        reject_model!(model, I18n.t("link_safety.errors.too_many_links"), nonblocking: nonblocking)
         return
       end
 
@@ -99,15 +110,31 @@ module ::LinkSafety
 
       if threats.any?
         if SiteSetting.link_safety_mode == "enforce"
-          threats.each do |result|
-            ::LinkSafety::DetectionRecorder.queue_blocked!(
-              model: model,
-              result: result,
-              surface: surface,
-              user: user,
-            )
+          if nonblocking
+            threats.each do |result|
+              ::LinkSafety::DetectionRecorder.record!(
+                result: result,
+                surface: surface,
+                user: user,
+                action: :blocked_before_save,
+                target: model,
+              )
+            end
+          else
+            threats.each do |result|
+              ::LinkSafety::DetectionRecorder.queue_blocked!(
+                model: model,
+                result: result,
+                surface: surface,
+                user: user,
+              )
+            end
           end
-          model.errors.add(:base, ::LinkSafety::WarningPresenter.validation_message(threats))
+          reject_model!(
+            model,
+            ::LinkSafety::WarningPresenter.validation_message(threats),
+            nonblocking: nonblocking,
+          )
           return
         else
           threats.each do |result|
@@ -124,27 +151,36 @@ module ::LinkSafety
       return if errors.empty?
 
       if ::LinkSafety::VerificationPolicy.block_errors?(errors, failure_policy: effective_failure_policy)
-        add_verification_error!(model, errors.map(&:error_code))
+        add_verification_error!(model, errors.map(&:error_code), nonblocking: nonblocking)
       else
         ::LinkSafety::Statistics.bump!(SiteSetting.link_safety_provider, fail_open: 1)
       end
     end
     private_class_method :validate_model_without_statistics_capture!
 
-    def self.handle_verification_errors!(model, errors, failure_policy:)
+    def self.handle_verification_errors!(model, errors, failure_policy:, nonblocking: false)
       if ::LinkSafety::VerificationPolicy.block_errors?(errors, failure_policy: failure_policy)
-        add_verification_error!(model, errors)
+        add_verification_error!(model, errors, nonblocking: nonblocking)
       else
         ::LinkSafety::Statistics.bump!(SiteSetting.link_safety_provider, fail_open: 1)
       end
     end
     private_class_method :handle_verification_errors!
 
-    def self.add_verification_error!(model, error_codes)
+    def self.add_verification_error!(model, error_codes, nonblocking: false)
       configuration = Array(error_codes).any? { |code| ::LinkSafety::VerificationPolicy.configuration_error?(code) }
       message = configuration ? "link_safety.errors.configuration" : "link_safety.errors.unavailable"
-      model.errors.add(:base, I18n.t(message))
+      reject_model!(model, I18n.t(message), nonblocking: nonblocking)
     end
     private_class_method :add_verification_error!
+
+    def self.reject_model!(model, message, nonblocking:)
+      if nonblocking
+        model.instance_variable_set(NONBLOCKING_REJECTED_IVAR, true)
+      else
+        model.errors.add(:base, message)
+      end
+    end
+    private_class_method :reject_model!
   end
 end

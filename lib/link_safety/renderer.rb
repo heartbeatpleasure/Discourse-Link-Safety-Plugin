@@ -20,8 +20,20 @@ module ::LinkSafety
       return false if SiteSetting.link_safety_mode != "enforce"
       changed = false
       doc.css("a[href]").each do |anchor|
-        item = item_for(anchor["href"])
-        next unless item
+        href = anchor["href"]
+        next if ::LinkSafety::WarningPresenter.advisory_url?(href)
+
+        candidate = ::LinkSafety::UrlCandidateClassifier.classify(href)
+        next unless candidate.checkable?
+
+        item = ::LinkSafety::Canonicalizer.call(candidate.url)
+        unless item
+          if failure_policy.to_s == "fail_closed"
+            neutralize_unverified_anchor!(anchor)
+            changed = true
+          end
+          next
+        end
         next if ::LinkSafety::TrustedDomains.trusted?(item.host)
 
         entry = ::LinkSafety::CacheEntry.lookup(
@@ -85,16 +97,6 @@ module ::LinkSafety
     def self.fail_closed_document!(doc)
       fail_closed_external_links!(doc)
     end
-
-    def self.item_for(href)
-      candidate = ::LinkSafety::UrlCandidateClassifier.classify(href)
-      return unless candidate.checkable?
-
-      ::LinkSafety::Canonicalizer.call(candidate.url)
-    rescue StandardError
-      nil
-    end
-    private_class_method :item_for
 
     def self.remember_original_href!(anchor)
       href = anchor["href"].presence

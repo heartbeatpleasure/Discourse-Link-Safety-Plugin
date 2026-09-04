@@ -8,6 +8,7 @@ module ::LinkSafety
     GOOGLE_PROVIDERS = %w[safe_browsing_v5 web_risk_lookup].freeze
     SAFE_BROWSING_ADVISORY = "https://developers.google.com/safe-browsing/v4/advisory".freeze
     WEB_RISK_ADVISORY = "https://docs.cloud.google.com/web-risk/docs/advisory".freeze
+    ADVISORY_URLS = [SAFE_BROWSING_ADVISORY, WEB_RISK_ADVISORY].freeze
 
     def self.google_provider?(provider)
       GOOGLE_PROVIDERS.include?(provider.to_s)
@@ -15,6 +16,10 @@ module ::LinkSafety
 
     def self.advisory_url(provider)
       provider.to_s == "web_risk_lookup" ? WEB_RISK_ADVISORY : SAFE_BROWSING_ADVISORY
+    end
+
+    def self.advisory_url?(url)
+      ADVISORY_URLS.include?(url.to_s)
     end
 
     def self.validation_message(results)

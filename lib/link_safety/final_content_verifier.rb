@@ -39,8 +39,7 @@ module ::LinkSafety
       return Result.new(checked: 0, threats: [], errors: []) if context.extraction&.error_code.present?
 
       urls = Array(context.extraction&.urls)
-      cooked = target.respond_to?(:cooked) ? target.cooked : nil
-      final_extraction = ::LinkSafety::Extractor.final_document_result(cooked)
+      final_extraction = final_document_extraction(target)
       return Result.new(checked: 0, threats: [], errors: []) if final_extraction.error_code.present?
       urls.concat(final_extraction.urls)
       urls = ::LinkSafety::UrlCandidateClassifier.filter(urls).uniq
@@ -123,6 +122,29 @@ module ::LinkSafety
     rescue StandardError
       nil
     end
+
+    def self.final_document_extraction(target)
+      documents = []
+      documents << target.cooked if target.respond_to?(:cooked) && target.cooked.present?
+
+      if target.is_a?(::Post) && defined?(::PostLocalization) && target.id
+        documents.concat(
+          ::PostLocalization.where(post_id: target.id).where.not(cooked: [nil, ""]).pluck(:cooked),
+        )
+      end
+
+      urls = []
+      documents.each do |html|
+        extraction = ::LinkSafety::Extractor.final_document_result(html)
+        return extraction if extraction.error_code.present?
+        urls.concat(extraction.urls)
+      end
+
+      ::LinkSafety::Extractor::Extraction.new(urls: urls.uniq, error_code: nil)
+    rescue StandardError
+      ::LinkSafety::Extractor::Extraction.new(urls: [], error_code: "extractor_failure")
+    end
+    private_class_method :final_document_extraction
 
     def self.due_urls(urls, revalidation:)
       cutoff = SiteSetting.link_safety_revalidation_interval_hours.to_i.hours.ago

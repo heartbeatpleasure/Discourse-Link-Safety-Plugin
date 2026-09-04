@@ -10,11 +10,20 @@ module ::LinkSafety
       allowed_once = target ? ::LinkSafety::FinalContentGuard.peek_allowance(target) : Set.new
 
       doc.css("a.onebox[href], a.inline-onebox-loading[href]").each do |anchor|
-        candidate = ::LinkSafety::UrlCandidateClassifier.classify(anchor["href"])
+        href = anchor["href"]
+        next if ::LinkSafety::WarningPresenter.advisory_url?(href)
+
+        candidate = ::LinkSafety::UrlCandidateClassifier.classify(href)
         next unless candidate.checkable?
 
         item = ::LinkSafety::Canonicalizer.call(candidate.url)
-        next unless item
+        unless item
+          # A malformed external navigation candidate cannot be reputation-
+          # checked. Never let Discourse initiate a server-side onebox fetch for
+          # it in Enforce mode, irrespective of provider outage policy.
+          strip_onebox_marker!(anchor)
+          next
+        end
         next if ::LinkSafety::TrustedDomains.trusted?(item.host)
         next if allowed_once.include?(item.fingerprint)
 

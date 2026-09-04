@@ -28,6 +28,8 @@ module ::LinkSafety
       verification_needed = false
 
       extraction.urls.each do |url|
+        next if ::LinkSafety::WarningPresenter.advisory_url?(url)
+
         item = ::LinkSafety::Canonicalizer.call(url)
         next unless item
         next if ::LinkSafety::TrustedDomains.trusted?(item.host)
@@ -48,10 +50,19 @@ module ::LinkSafety
       # the site's existing fail-closed policy requires it. Known cached errors
       # and threats have already been handled by Renderer above.
       doc.css("a[href]").each do |anchor|
-        candidate = ::LinkSafety::UrlCandidateClassifier.classify(anchor["href"])
+        href = anchor["href"]
+        next if ::LinkSafety::WarningPresenter.advisory_url?(href)
+
+        candidate = ::LinkSafety::UrlCandidateClassifier.classify(href)
         next unless candidate.checkable?
         item = ::LinkSafety::Canonicalizer.call(candidate.url)
-        next unless item
+        unless item
+          if SiteSetting.link_safety_mode.to_s == "enforce" &&
+               SiteSetting.link_safety_failure_policy.to_s == "fail_closed"
+            ::LinkSafety::Renderer.neutralize_unverified_anchor!(anchor)
+          end
+          next
+        end
         next if ::LinkSafety::TrustedDomains.trusted?(item.host)
         next if allowed_once.include?(item.fingerprint)
 

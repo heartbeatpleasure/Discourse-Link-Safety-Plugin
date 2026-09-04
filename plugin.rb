@@ -2,7 +2,7 @@
 
 # name: Discourse-Link-Safety-Plugin
 # about: Checks external links in Discourse content against configurable malicious URL reputation providers.
-# version: 1.3.1
+# version: 1.3.2
 # authors: Chris
 
 add_admin_route "admin.link_safety.title", "linkSafety"
@@ -31,6 +31,7 @@ after_initialize do
     lib/link_safety/site_origin.rb
     lib/link_safety/url_candidate_classifier.rb
     lib/link_safety/actor_resolver.rb
+    lib/link_safety/authentication_context.rb
     lib/link_safety/retry_context.rb
     lib/link_safety/extractor.rb
     lib/link_safety/surface_policy.rb
@@ -70,6 +71,19 @@ after_initialize do
     app/controllers/link_safety/admin_statistics_controller.rb
   ].each { |path| require_dependency File.expand_path(path, __dir__) }
 
+  if defined?(::DiscourseConnect)
+    module ::LinkSafety
+      module DiscourseConnectAuthenticationGuard
+        def lookup_or_create_user(...)
+          ::LinkSafety::AuthenticationContext.with_discourse_connect { super }
+        end
+      end
+    end
+    unless ::DiscourseConnect.ancestors.include?(::LinkSafety::DiscourseConnectAuthenticationGuard)
+      ::DiscourseConnect.prepend(::LinkSafety::DiscourseConnectAuthenticationGuard)
+    end
+  end
+
   plugin_instance.validate("Post", :link_safety_validate_external_links) do
     next unless SiteSetting.link_safety_enabled
     next unless new_record? || will_save_change_to_raw?
@@ -99,16 +113,19 @@ after_initialize do
   plugin_instance.validate("UserProfile", :link_safety_validate_profile_links) do
     next unless ::LinkSafety::SurfacePolicy.enabled?(:profile)
 
+    website_changed = new_record? || will_save_change_to_website?
+    bio_changed = new_record? || will_save_change_to_bio_raw?
     urls = []
     extraction_error = nil
-    urls << website if website.present? && (new_record? || will_save_change_to_website?)
-    if bio_raw.present? && (new_record? || will_save_change_to_bio_raw?)
+    urls << website if website.present? && website_changed
+    if bio_raw.present? && bio_changed
       extraction = ::LinkSafety::Extractor.markdown_result(bio_raw)
       urls.concat(extraction.urls)
       extraction_error ||= extraction.error_code
     end
     next if urls.blank? && extraction_error.blank?
 
+    nonblocking = ::LinkSafety::AuthenticationContext.discourse_connect?
     ::LinkSafety::ContentValidator.validate_model!(
       model: self,
       urls: urls,
@@ -117,7 +134,17 @@ after_initialize do
       user: user,
       private_content: ::LinkSafety::PrivacyContext.for_user_profile(self),
       failure_policy: SiteSetting.link_safety_profile_fail_open ? :fail_open : :fail_closed,
+      nonblocking: nonblocking,
     )
+
+    if nonblocking && ::LinkSafety::ContentValidator.take_nonblocking_rejection!(self)
+      # DiscourseConnect performs these profile saves while authenticating. Keep
+      # the prior safe metadata if Link Safety rejects the incoming payload, but
+      # never turn a metadata verdict/provider failure into an authentication
+      # failure or redirect loop.
+      self.website = attribute_in_database("website") if website_changed
+      self.bio_raw = attribute_in_database("bio_raw") if bio_changed
+    end
   end
 
   plugin_instance.validate("Topic", :link_safety_validate_featured_link) do
@@ -228,6 +255,22 @@ after_initialize do
   end
   unless ::CookedPostProcessor.ancestors.include?(::LinkSafety::CookedPostProcessorFinalGuard)
     ::CookedPostProcessor.prepend(::LinkSafety::CookedPostProcessorFinalGuard)
+  end
+
+  if defined?(::LocalizedCookedPostProcessor)
+    module ::LinkSafety
+      module LocalizedCookedPostProcessorGuard
+        def post_process(...)
+          ::LinkSafety::OneboxGate.apply!(@doc, target: @post) if SiteSetting.link_safety_enabled
+          result = super
+          ::LinkSafety::FinalContentGuard.apply!(@doc, target: @post) if SiteSetting.link_safety_enabled
+          result
+        end
+      end
+    end
+    unless ::LocalizedCookedPostProcessor.ancestors.include?(::LinkSafety::LocalizedCookedPostProcessorGuard)
+      ::LocalizedCookedPostProcessor.prepend(::LinkSafety::LocalizedCookedPostProcessorGuard)
+    end
   end
 
   # Metadata is guarded at presentation time rather than destructively editing

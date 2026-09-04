@@ -57,12 +57,19 @@ module ::LinkSafety
       end
 
       # Safe Browsing removes the literal fragment before percent-unescaping.
+      # Keep that fragment-stripped navigation target separately: full-URL
+      # providers (Web Risk Lookup / URLhaus) must receive the actual URL rather
+      # than Safe Browsing's recursively decoded hash-canonicalization form.
+      # A %3F or %2F inside a path is URL data for those providers and must not
+      # be turned into a query/path delimiter.
+      provider_value = value.split("#", 2).first
+      provider_uri = parse_url(provider_value)
+
       # A # that appears only after recursive percent-decoding is therefore URL
       # data, not a fragment delimiter. Protect those decoded hashes while the
       # generic URI parser separates host/path/query, then restore them inside
       # the individual components before canonicalization.
-      value = value.split("#", 2).first
-      value = repeatedly_unescape(value)
+      value = repeatedly_unescape(provider_value)
       value = protect_decoded_hashes(value)
 
       uri = parse_url(value)
@@ -90,11 +97,11 @@ module ::LinkSafety
       canonical = "#{scheme}://#{escaped_host}#{escaped_path}"
       canonical += "?#{escaped_query}" unless escaped_query.nil?
 
-      port = uri.port
-      default_port = scheme == "https" ? 443 : 80
-      port_suffix = port && port != default_port ? ":#{port}" : ""
-      full_url = "#{scheme}://#{escaped_host}#{port_suffix}#{escaped_path}"
-      full_url += "?#{escaped_query}" unless escaped_query.nil?
+      full_url = full_url_for_provider(
+        provider_uri || uri,
+        scheme: scheme,
+        escaped_host: escaped_host,
+      )
 
       item = CanonicalUrl.new(
         original: @original,
@@ -199,6 +206,56 @@ module ::LinkSafety
       rescue StandardError
         nil
       end
+    end
+
+
+    def full_url_for_provider(uri, scheme:, escaped_host:)
+      raw_path = uri.path.to_s.empty? ? "/" : uri.path.to_s
+      raw_query = uri.query.nil? ? nil : uri.query.to_s
+      escaped_provider_path = escape_full_url_component(raw_path)
+      escaped_provider_query = raw_query.nil? ? nil : escape_full_url_component(raw_query)
+
+      port = uri.port
+      default_port = scheme == "https" ? 443 : 80
+      port_suffix = port && port != default_port ? ":#{port}" : ""
+      value = "#{scheme}://#{escaped_host}#{port_suffix}#{escaped_provider_path}"
+      value += "?#{escaped_provider_query}" unless escaped_provider_query.nil?
+      value
+    rescue URI::Error, ArgumentError
+      raise CanonicalizationError, :invalid_url
+    end
+
+    # URI/Addressable leave valid percent escapes intact. Preserve those bytes
+    # verbatim so reserved characters cannot change URL structure, while still
+    # percent-encoding controls/non-ASCII bytes if a permissive parser accepted
+    # them. Literal '%' not followed by two hex digits is encoded as data.
+    def escape_full_url_component(value)
+      bytes = value.to_s.b.bytes
+      output = +""
+      index = 0
+
+      while index < bytes.length
+        byte = bytes[index]
+        if byte == 0x25 && index + 2 < bytes.length && hex_byte?(bytes[index + 1]) && hex_byte?(bytes[index + 2])
+          output << "%" << bytes[index + 1].chr << bytes[index + 2].chr
+          index += 3
+          next
+        end
+
+        if byte <= 0x20 || byte >= 0x7F || byte == 0x23 || byte == 0x25
+          output << format("%%%02X", byte)
+        else
+          output << byte.chr
+        end
+        index += 1
+      end
+
+      output
+    end
+
+    def hex_byte?(byte)
+      (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x46) ||
+        (byte >= 0x61 && byte <= 0x66)
     end
 
     def protect_decoded_hashes(value)
